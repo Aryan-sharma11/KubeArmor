@@ -15,9 +15,12 @@ on:
       - "tests/**"
       - "protobuf/**"
       - ".github/workflows/ci-test-systemd.yml"
-
-jobs:
+  issue_comment:
+   types:
+      - created
+jobs:  
   build:
+    if: github.event_name == 'push' || (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/deploy')) || github.event_name == 'pull_request'
     name: Test KubeArmor in Systemd Mode
     runs-on: ubuntu-20.04
     steps:

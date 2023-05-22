@@ -11,9 +11,13 @@ on:
       - "main"
     paths:
       - "pkg/**"
-
+  
+  issue_comment:
+    types:
+      - created
 jobs:
   check:
+    if: github.event_name == 'push' || (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/deploy')) || github.event_name == 'pull_request' 
     name: Check what controllers were updated
     if: github.repository == 'kubearmor/kubearmor'
     runs-on: ubuntu-20.04
@@ -36,6 +40,7 @@ jobs:
             - 'pkg/KubeArmorPolicy/**'
 
   annotation-controller-release:
+    if: github.event_name == 'push' || (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/deploy')) || github.event_name == 'pull_request' 
     name: Build annotation controller
     needs: check
     defaults:
@@ -55,6 +60,7 @@ jobs:
         run: make docker-build TAG=latest
 
   hostpolicy-controller-release:
+    if: github.event_name == 'push' || (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/deploy')) || github.event_name == 'pull_request' 
     name: Build hostpolicy controller
     needs: check
     defaults:
@@ -74,6 +80,7 @@ jobs:
         run: make docker-build TAG=latest
 
   policy-controller-release:
+    if: github.event_name == 'push' || (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/deploy')) || github.event_name == 'pull_request' 
     name: Build policy controller
     needs: check
     defaults:
