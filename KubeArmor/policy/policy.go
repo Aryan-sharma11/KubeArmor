@@ -16,8 +16,8 @@ import (
 // ServiceServer provides structure to serve Policy gRPC service
 type ServiceServer struct {
 	pb.PolicyServiceServer
-	UpdateContainerPolicy func(tp.K8sKubeArmorPolicyEvent)
-	UpdateHostPolicy      func(tp.K8sKubeArmorHostPolicyEvent)
+	UpdateContainerPolicy func(tp.K8sKubeArmorPolicyEvent) bool
+	UpdateHostPolicy      func(tp.K8sKubeArmorHostPolicyEvent) bool
 }
 
 // ContainerPolicy accepts container events on gRPC and update container security policies
@@ -31,9 +31,21 @@ func (p *ServiceServer) ContainerPolicy(c context.Context, data *pb.Policy) (*pb
 
 		if policyEvent.Object.Metadata.Name != "" {
 
-			p.UpdateContainerPolicy(policyEvent)
+			res.Present = policyCheck(policyEvent.Object.Metadata.Name)
+			res.Applied = p.UpdateContainerPolicy(policyEvent)
 
-			res.Status = 1
+			if policyEvent.Type == "DELETED" {
+				if !res.Applied {
+					res.Status = 1
+					return res, nil
+				}
+			}
+			if res.Applied {
+				res.Status = 1
+
+			} else {
+				res.Status = 0
+			}
 
 		} else {
 
@@ -61,9 +73,20 @@ func (p *ServiceServer) HostPolicy(c context.Context, data *pb.Policy) (*pb.Resp
 
 		if policyEvent.Object.Metadata.Name != "" {
 
-			p.UpdateHostPolicy(policyEvent)
+			res.Present = policyCheck(policyEvent.Object.Metadata.Name)
+			res.Applied = p.UpdateHostPolicy(policyEvent)
+			if policyEvent.Type == "DELETED" {
+				if !res.Applied {
+					res.Status = 1
+					return res, nil
+				}
+			}
+			if res.Applied {
+				res.Status = 1
 
-			res.Status = 1
+			} else {
+				res.Status = 0
+			}
 
 		} else {
 

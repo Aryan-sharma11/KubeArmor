@@ -1435,7 +1435,7 @@ func (dm *KubeArmorDaemon) UpdateHostSecurityPolicies() {
 }
 
 // ParseAndUpdateHostSecurityPolicy Function
-func (dm *KubeArmorDaemon) ParseAndUpdateHostSecurityPolicy(event tp.K8sKubeArmorHostPolicyEvent) {
+func (dm *KubeArmorDaemon) ParseAndUpdateHostSecurityPolicy(event tp.K8sKubeArmorHostPolicyEvent) bool {
 	// create a host security policy
 
 	secPolicy := tp.HostSecurityPolicy{}
@@ -1445,7 +1445,7 @@ func (dm *KubeArmorDaemon) ParseAndUpdateHostSecurityPolicy(event tp.K8sKubeArmo
 
 	if err := kl.Clone(event.Object.Spec, &secPolicy.Spec); err != nil {
 		dm.Logger.Errf("Failed to clone a spec (%s)", err.Error())
-		return
+		return false
 	}
 
 	kl.ObjCommaExpandFirstDupOthers(&secPolicy.Spec.Network.MatchProtocols)
@@ -1866,6 +1866,7 @@ func (dm *KubeArmorDaemon) ParseAndUpdateHostSecurityPolicy(event tp.K8sKubeArmo
 			dm.removeBackUpPolicy(secPolicy.Metadata["policyName"])
 		}
 	}
+	return true
 }
 
 // WatchHostSecurityPolicies Function

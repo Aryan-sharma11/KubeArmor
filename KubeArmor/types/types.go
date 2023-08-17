@@ -605,4 +605,4 @@ type PidNode struct {
 // =============== //
 
 // KubeArmorHostPolicyEventCallback Function
-type KubeArmorHostPolicyEventCallback func(K8sKubeArmorHostPolicyEvent)
+type KubeArmorHostPolicyEventCallback func(K8sKubeArmorHostPolicyEvent) bool
