@@ -6,7 +6,6 @@
 package policy
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -23,14 +22,7 @@ func policyCheck(policyName string) bool {
 
 	// Check if the file exists
 	_, err := os.Stat(filePath)
-	if err == nil {
-		fmt.Printf("File '%s' exists.\n", filePath)
-		return true
-	} else if os.IsNotExist(err) {
-		fmt.Printf("File '%s' does not exist.\n", filePath)
-		return false
-	} else {
-		fmt.Printf("Error checking file: %v\n", err)
-		return false
-	}
+
+	return err == nil
+
 }

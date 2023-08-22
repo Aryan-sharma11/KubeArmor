@@ -31,31 +31,45 @@ func (p *ServiceServer) ContainerPolicy(c context.Context, data *pb.Policy) (*pb
 
 		if policyEvent.Object.Metadata.Name != "" {
 
-			res.Present = policyCheck(policyEvent.Object.Metadata.Name)
-			res.Applied = p.UpdateContainerPolicy(policyEvent)
+			present := policyCheck(policyEvent.Object.Metadata.Name)
+			updated := p.UpdateContainerPolicy(policyEvent)
 
-			if policyEvent.Type == "DELETED" {
-				if !res.Applied {
-					res.Status = 1
+			if policyEvent.Type == "ADDED" {
+				if updated {
+					res.Status = 2
+				}
+				if !updated {
+					res.Status = 4
+					return res, nil
+				}
+				if updated && present {
+					res.Status = 3
 					return res, nil
 				}
 			}
-			if res.Applied {
-				res.Status = 1
+			if policyEvent.Type == "DELETED" {
+				if updated {
+					res.Status = -1
+					return res, nil
+				}
+				if !present {
+					res.Status = -2
+					return res, nil
+				}
+				if !updated && present {
+					res.Status = -3
+					return res, nil
+				}
 
-			} else {
-				res.Status = 0
 			}
-
 		} else {
-
-			kg.Warn("Empty Container Policy Event")
-
 			res.Status = 0
 		}
 
 	} else {
-		kg.Warn("Invalid Container Policy Event")
+
+		kg.Warn("Empty Container Policy Event")
+
 		res.Status = 0
 	}
 
