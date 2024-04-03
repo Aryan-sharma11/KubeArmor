@@ -8,26 +8,26 @@ builds:
     goarch:
       - amd64
       - arm64
-      
+
 archives:
   - id: "kubearmor"
     builds:
       - "kubearmor"
     name_template: "{{.ProjectName}}_{{.Version}}_{{.Os}}-{{.Arch}}"
     files:
+      - src: ./BPF/*
+        dst: /opt/kubearmor/BPF/
+      - src: ./templates/*
+        dst: /opt/kubearmor/templates/
       - src: ./packaging/kubearmor.yaml
-        dst: /opt/kubearmor
+        dst: /opt/kubearmor/
         strip_parent: true
       - src: ./packaging/kubearmor.service
-        dst: /usr/lib/systemd/system
+        dst: /usr/lib/systemd/system/
         strip_parent: true
       - src: ./karmor
-        dst: /usr/local/bin
-      - src: ./BPF/*
-        dst: /opt/kubearmor/
-      - src: ./templates/*
-        dst: /opt/kubearmor/ 
-   
+        dst: /usr/local/bin/karmor
+
 nfpms:
   - id: "kubearmor"
     builds:
