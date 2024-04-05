@@ -67,14 +67,14 @@ nfpms:
       postinstall: packaging/post-install.sh
     overrides:
       deb:
-        dependencies:
+        recommends:
           - make
           - libelf-dev
           - clang
           - llvm
           - linux-headers-generic
       rpm:
-        dependencies:
+        recommends:
           - make
           - elfutils-libelf-devel
           - clang
