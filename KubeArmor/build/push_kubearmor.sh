@@ -8,7 +8,7 @@
 
 [[ "$STABLE_VERSION" != "" ]] && STABEL_LABEL="--label stabel-version=$STABLE_VERSION"
 
-UBIREPO="kubearmor/kubearmor-ubi"
+UBIREPO="aryan1126/kubearmor-ubi"
 
 # set LABEL
 unset LABEL
