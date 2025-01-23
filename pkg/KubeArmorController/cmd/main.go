@@ -169,12 +169,12 @@ func main() {
 			Cluster: &cluster,
 		},
 	})
-
 	setupLog.Info("Adding pod refresher controller")
 	if err = (&controllers.PodRefresherReconciler{
 		Client:  mgr.GetClient(),
 		Scheme:  mgr.GetScheme(),
 		Cluster: &cluster,
+		Corev1:  client,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Pod")
 		os.Exit(1)
