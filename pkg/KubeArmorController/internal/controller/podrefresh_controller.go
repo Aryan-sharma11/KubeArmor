@@ -28,8 +28,8 @@ type PodRefresherReconciler struct {
 	Corev1  *kubernetes.Clientset
 }
 type ResourceInfo struct {
-	kind string 
-	namespaceName string 
+	kind          string
+	namespaceName string
 }
 
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;watch;list;create;update;delete
@@ -45,7 +45,7 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	log.Info("Watching for blocked pods")
 	poddeleted := false
-	deploymentMap := make(map[string][]ResourceInfo)
+	deploymentMap := make(map[string]ResourceInfo)
 	for _, pod := range podList.Items {
 		if pod.DeletionTimestamp != nil {
 			continue
@@ -53,44 +53,15 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if pod.Spec.NodeName == "" {
 			continue
 		}
-		for _, ref := range pod.OwnerReferences {
 
-			if *ref.Controller {
-				fmt.Println("Pod with controller ")
-				fmt.Println(ref.Kind)
-				if ref.Kind == "ReplicaSet" {
-					replicaSet, err := r.Corev1.AppsV1().ReplicaSets(pod.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
-					if err != nil {
-						fmt.Printf("Failed to get ReplicaSet %s: %v\n", ref.Name, err)
-						continue
-					}
-					// Check if the ReplicaSet is managed by a Deployment
-					for _, rsOwnerRef := range replicaSet.OwnerReferences {
-						if rsOwnerRef.Kind == "Deployment" {
-							deploymentName := rsOwnerRef.Name
-							deploymentMap[deploymentName] = append(deploymentMap[deploymentName], ResourceInfo{
-								kind : rsOwnerRef.Kind , 
-								namespaceName: pod.Namespace,
-							})
-						}
-					}
-				} else {
-					fmt.Println(ref.Name, ref.Kind)
-					deploymentMap[ref.Name] = append(deploymentMap[ref.Name], ResourceInfo{
-						namespaceName: pod.Namespace,
-						kind : ref.Kind,
-					})
-				}
-			}
-		}
-			// Update the Pod template's annotations to trigger a rolling restart
-	// if deployment.Spec.Template.Annotations == nil {
-	// 	deployment.Spec.Template.Annotations = make(map[string]string)
-	// }
-	// deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+		// Update the Pod template's annotations to trigger a rolling restart
+		// if deployment.Spec.Template.Annotations == nil {
+		// 	deployment.Spec.Template.Annotations = make(map[string]string)
+		// }
+		// deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
 
-	// // Patch the Deployment
-	// _, err = clientset.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
+		// // Patch the Deployment
+		// _, err = clientset.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
 		r.Cluster.ClusterLock.RLock()
 		enforcer := ""
 		if _, ok := r.Cluster.Nodes[pod.Spec.NodeName]; ok {
@@ -121,14 +92,44 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			// for annotating pre-existing pods on apparmor-nodes
 			// the pod is managed by a controller (e.g: replicaset)
 			if pod.OwnerReferences != nil && len(pod.OwnerReferences) != 0 {
-				log.Info("Deleting pod " + pod.Name + "in namespace " + pod.Namespace + " as it is managed")
+				// log.Info("Deleting pod " + pod.Name + "in namespace " + pod.Namespace + " as it is managed")
+				log.Info(" deployments will be restarted")
+				for _, ref := range pod.OwnerReferences {
 
-				// find out deployment--- patch it
-				if err := r.Delete(ctx, &pod); err != nil {
-					if !errors.IsNotFound(err) {
-						log.Error(err, "Could not delete pod "+pod.Name+" in namespace "+pod.Namespace)
+					if *ref.Controller {
+						fmt.Println("Pod with controller ")
+						fmt.Println(ref.Kind)
+						if ref.Kind == "ReplicaSet" {
+							replicaSet, err := r.Corev1.AppsV1().ReplicaSets(pod.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+							if err != nil {
+								fmt.Printf("Failed to get ReplicaSet %s: %v\n", ref.Name, err)
+								continue
+							}
+							// Check if the ReplicaSet is managed by a Deployment
+							for _, rsOwnerRef := range replicaSet.OwnerReferences {
+								if rsOwnerRef.Kind == "Deployment" {
+									deploymentName := rsOwnerRef.Name
+									deploymentMap[deploymentName] = ResourceInfo{
+										kind:          rsOwnerRef.Kind,
+										namespaceName: pod.Namespace,
+									}
+								}
+							}
+						} else {
+							fmt.Println(ref.Name, ref.Kind)
+							deploymentMap[ref.Name] = ResourceInfo{
+								namespaceName: pod.Namespace,
+								kind:          ref.Kind,
+							}
+						}
 					}
 				}
+
+				// find out deployment--- patch it
+				// if err := r.Delete(ctx, &pod); err != nil {
+				// 	if !errors.IsNotFound(err) {
+				// 		log.Error(err, "Could not delete pod "+pod.Name+" in namespace "+pod.Namespace)
+				// 	}
 			} else {
 				// single pods
 				// mimic kubectl replace --force
@@ -151,9 +152,8 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			poddeleted = true
 		}
 	}
-	fmt.Println(deploymentMap)
 
-	restartResources(deploymentMap , r.Corev1)
+	restartResources(deploymentMap, r.Corev1)
 
 	// give time for pods to be deleted
 	if poddeleted {
@@ -188,24 +188,38 @@ func requireRestart(pod corev1.Pod, enforcer string) bool {
 
 	return false
 }
-func restartResources(resourcesMap map [string]ResourceInfo , corev1 *kubernetes.Clientset) error {
+func restartResources(resourcesMap map[string]ResourceInfo, corev1 *kubernetes.Clientset) error {
 
-	patchannotation :="kubectl.kubernetes.io/restartedAt"
-
-	for name , resInfo := range resourcesMap {
-
+	patchannotation := "kubearmor.kubernetes.io/restartedAt"
+	ctx := context.Background()
+	log := log.FromContext(ctx)
+	fmt.Println(resourcesMap)
+	for name, resInfo := range resourcesMap {
 		switch resInfo.kind {
-		case "Deployment":	
-				corev1.AppsV1().Deployments(resInfo.namespaceName).Get(ctx, name, metav1.GetOptions{})
+		case "Deployment":
+			fmt.Println("Resource Infor", resInfo.namespaceName, name, resInfo.kind)
+			dep, err := corev1.AppsV1().Deployments(resInfo.namespaceName).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				fmt.Printf("error geting deployments : %s", err.Error())
+			}
+			log.Info("restarting deployment %s in namespace %s", name, resInfo.namespaceName)
+			// Update the Pod template's annotations to trigger a rolling restart
+			if dep.Spec.Template.Annotations == nil {
+				dep.Spec.Template.Annotations = make(map[string]string)
+			}
+			dep.Spec.Template.Annotations[patchannotation] = time.Now().Format(time.RFC3339)
+			// Patch the Deployment
+			_, err = corev1.AppsV1().Deployments(resInfo.namespaceName).Update(ctx, dep, metav1.UpdateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to update Deployment %s: %v", name, err)
+			}
 
 		case "Statefulset":
 
-		case "Daemonset": 
+		case "Daemonset":
 		}
 
-
 	}
-
 
 	return nil
 }
