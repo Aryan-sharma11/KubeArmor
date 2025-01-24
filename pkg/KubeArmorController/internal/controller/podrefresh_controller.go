@@ -53,15 +53,6 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if pod.Spec.NodeName == "" {
 			continue
 		}
-
-		// Update the Pod template's annotations to trigger a rolling restart
-		// if deployment.Spec.Template.Annotations == nil {
-		// 	deployment.Spec.Template.Annotations = make(map[string]string)
-		// }
-		// deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
-
-		// // Patch the Deployment
-		// _, err = clientset.AppsV1().Deployments(namespace).Update(ctx, deployment, metav1.UpdateOptions{})
 		r.Cluster.ClusterLock.RLock()
 		enforcer := ""
 		if _, ok := r.Cluster.Nodes[pod.Spec.NodeName]; ok {
@@ -197,7 +188,7 @@ func restartResources(resourcesMap map[string]ResourceInfo, corev1 *kubernetes.C
 	for name, resInfo := range resourcesMap {
 		switch resInfo.kind {
 		case "Deployment":
-			fmt.Println("Resource Infor", resInfo.namespaceName, name, resInfo.kind)
+			fmt.Println("Resource Info", resInfo.namespaceName, name, resInfo.kind)
 			dep, err := corev1.AppsV1().Deployments(resInfo.namespaceName).Get(ctx, name, metav1.GetOptions{})
 			if err != nil {
 				fmt.Printf("error geting deployments : %s", err.Error())
@@ -215,8 +206,38 @@ func restartResources(resourcesMap map[string]ResourceInfo, corev1 *kubernetes.C
 			}
 
 		case "Statefulset":
+			statefulSet, err := corev1.AppsV1().StatefulSets(resInfo.namespaceName).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				fmt.Printf("error geting statefulset : %s", err.Error())
+			}
+			log.Info("restarting statefulset "+ name+" in namespace " + resInfo.namespaceName)
+			// Update the Pod template's annotations to trigger a rolling restart
+			if statefulSet.Spec.Template.Annotations == nil {
+				statefulSet.Spec.Template.Annotations = make(map[string]string)
+			}
+			statefulSet.Spec.Template.Annotations[patchannotation] = time.Now().Format(time.RFC3339)
+			// Patch the Deployment
+			_, err = corev1.AppsV1().StatefulSets(resInfo.namespaceName).Update(ctx, statefulSet, metav1.UpdateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to update statefulset %s: %v", name, err)
+			}
 
 		case "Daemonset":
+			daemonSet, err := corev1.AppsV1().DaemonSets(resInfo.namespaceName).Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				fmt.Printf("error geting daemonset : %s", err.Error())
+			}
+			log.Info("restarting daemonset "+ name+" in namespace " + resInfo.namespaceName)
+			// Update the Pod template's annotations to trigger a rolling restart
+			if daemonSet.Spec.Template.Annotations == nil {
+				daemonSet.Spec.Template.Annotations = make(map[string]string)
+			}
+			daemonSet.Spec.Template.Annotations[patchannotation] = time.Now().Format(time.RFC3339)
+			// Patch the Deployment
+			_, err = corev1.AppsV1().DaemonSets(resInfo.namespaceName).Update(ctx, daemonSet, metav1.UpdateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to update daemonset %s: %v", name, err)
+			}
 		}
 
 	}
