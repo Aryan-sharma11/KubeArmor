@@ -156,6 +156,17 @@ rules:
   - watch
   - update
 - apiGroups:
+  - "apps"
+  resources:
+  - deployments
+  - statefulsets
+  - daemonsets
+  verbs:
+  - get
+  - list
+  - watch  
+  - update
+- apiGroups:
   - ""
   resources:
   - nodes

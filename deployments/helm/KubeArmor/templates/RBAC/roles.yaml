@@ -97,7 +97,18 @@ rules:
   verbs:
   - get
   - list
-  - watch   
+  - watch 
+- apiGroups:
+  - "apps"
+  resources:
+  - deployments
+  - statefulsets
+  - daemonsets
+  verbs:
+  - get
+  - list
+  - watch  
+  - update  
 - apiGroups:
   - security.kubearmor.com
   resources:

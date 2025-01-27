@@ -210,7 +210,7 @@ func restartResources(resourcesMap map[string]ResourceInfo, corev1 *kubernetes.C
 			if err != nil {
 				fmt.Printf("error geting statefulset : %s", err.Error())
 			}
-			log.Info("restarting statefulset "+ name+" in namespace " + resInfo.namespaceName)
+			log.Info("restarting statefulset " + name + " in namespace " + resInfo.namespaceName)
 			// Update the Pod template's annotations to trigger a rolling restart
 			if statefulSet.Spec.Template.Annotations == nil {
 				statefulSet.Spec.Template.Annotations = make(map[string]string)
@@ -227,7 +227,7 @@ func restartResources(resourcesMap map[string]ResourceInfo, corev1 *kubernetes.C
 			if err != nil {
 				fmt.Printf("error geting daemonset : %s", err.Error())
 			}
-			log.Info("restarting daemonset "+ name+" in namespace " + resInfo.namespaceName)
+			log.Info("restarting daemonset " + name + " in namespace " + resInfo.namespaceName)
 			// Update the Pod template's annotations to trigger a rolling restart
 			if daemonSet.Spec.Template.Annotations == nil {
 				daemonSet.Spec.Template.Annotations = make(map[string]string)
