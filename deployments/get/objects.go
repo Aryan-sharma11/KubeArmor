@@ -617,7 +617,7 @@ func GetKubeArmorControllerClusterRole() *rbacv1.ClusterRole {
 			},
 			{
 				APIGroups: []string{""},
-				Resources: []string{"nodes"},
+				Resources: []string{"nodes","replicasets"},
 				Verbs:     []string{"get", "list", "watch"},
 			},
 			{

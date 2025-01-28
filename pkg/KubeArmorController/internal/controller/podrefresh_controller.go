@@ -107,7 +107,6 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 								}
 							}
 						} else {
-							fmt.Println(ref.Name, ref.Kind)
 							deploymentMap[ref.Name] = ResourceInfo{
 								namespaceName: pod.Namespace,
 								kind:          ref.Kind,
@@ -139,8 +138,9 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				if err := r.Create(ctx, &pod); err != nil {
 					log.Error(err, "Could not create pod "+pod.Name+" in namespace "+pod.Namespace)
 				}
+				poddeleted = true
 			}
-			poddeleted = true
+			
 		}
 	}
 
@@ -184,7 +184,6 @@ func restartResources(resourcesMap map[string]ResourceInfo, corev1 *kubernetes.C
 	patchannotation := "kubearmor.kubernetes.io/restartedAt"
 	ctx := context.Background()
 	log := log.FromContext(ctx)
-	fmt.Println(resourcesMap)
 	for name, resInfo := range resourcesMap {
 		switch resInfo.kind {
 		case "Deployment":
@@ -239,7 +238,8 @@ func restartResources(resourcesMap map[string]ResourceInfo, corev1 *kubernetes.C
 				return fmt.Errorf("failed to update daemonset %s: %v", name, err)
 			}
 		}
-
+		// wait for few seconds after updating every resource
+		time.Sleep(5 * time.Second)
 	}
 
 	return nil
