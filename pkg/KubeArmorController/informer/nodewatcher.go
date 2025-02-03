@@ -18,7 +18,7 @@ import (
 
 func InitCluster() types.Cluster {
 	return types.Cluster{
-		Nodes:              make(map[string]string),
+		Nodes:              make(map[string]*types.NodeInfo),
 		HomogeneousStatus:  true,
 		ClusterLock:        &sync.RWMutex{},
 		HomogenousApparmor: false,
@@ -44,7 +44,10 @@ func NodeWatcher(c *kubernetes.Clientset, cluster *types.Cluster, log logr.Logge
 						cluster.TotalNodes++
 
 						if enforcer == "apparmor" {
-							cluster.Nodes[node.Name] = enforcer
+							cluster.Nodes[node.Name].Enforcer = enforcer
+							if len(node.Spec.Taints) > 0 {
+								cluster.Nodes[node.Name].SkipNode = true
+							}
 						}
 						// re-compute homogeneous status
 						homogeneous := true
@@ -80,12 +83,15 @@ func NodeWatcher(c *kubernetes.Clientset, cluster *types.Cluster, log logr.Logge
 				if enforcer, ok := node.Labels["kubearmor.io/enforcer"]; ok {
 					if _, ok := cluster.Nodes[node.Name]; ok {
 						// in case the enforcer has been updated to bpflsm from apparmor
-						if enforcer != cluster.Nodes[node.Name] {
+						if enforcer != cluster.Nodes[node.Name].Enforcer {
 							delete(cluster.Nodes, node.Name)
 						}
 					} else {
 						if enforcer == "apparmor" {
-							cluster.Nodes[node.Name] = enforcer
+							cluster.Nodes[node.Name].Enforcer = enforcer
+							if len(node.Spec.Taints) > 0 {
+								cluster.Nodes[node.Name].SkipNode = true
+							}
 						}
 					}
 					// re-compute homogeneous status

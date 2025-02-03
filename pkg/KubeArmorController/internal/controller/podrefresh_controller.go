@@ -54,6 +54,13 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			continue
 		}
 		r.Cluster.ClusterLock.RLock()
+		if _, exist := r.Cluster.Nodes[pod.Spec.NodeName]; exist {
+			if r.Cluster.Nodes[pod.Spec.NodeName].SkipNode {
+				log.Info(fmt.Sprintf("skip annotating pod as it is in tainted node %s", pod.Spec.NodeName))
+				r.Cluster.ClusterLock.RUnlock()
+				continue
+			}
+		}
 		enforcer := ""
 		if _, ok := r.Cluster.Nodes[pod.Spec.NodeName]; ok {
 			enforcer = "apparmor"
@@ -78,7 +85,6 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		// restart not required for special pods and already annotated pods
 
 		restartPod := requireRestart(pod, enforcer)
-
 		if restartPod {
 			// for annotating pre-existing pods on apparmor-nodes
 			// the pod is managed by a controller (e.g: replicaset)
@@ -140,7 +146,7 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				}
 				poddeleted = true
 			}
-			
+
 		}
 	}
 

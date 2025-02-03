@@ -151,14 +151,16 @@ func PodWatcher(c *kubernetes.Clientset, cluster *types.Cluster, log logr.Logger
 			}
 			if pod, ok := obj.(*corev1.Pod); ok {
 				if pod.Spec.NodeName != "" {
-					nodeEnforcer := ""
-					if _, ok := cluster.Nodes[pod.Spec.NodeName]; ok {
-						nodeEnforcer = "apparmor"
-					} else {
-						nodeEnforcer = "bpf"
+					if !cluster.Nodes[pod.Spec.NodeName].SkipNode {
+						nodeEnforcer := ""
+						if _, ok := cluster.Nodes[pod.Spec.NodeName]; ok {
+							nodeEnforcer = "apparmor"
+						} else {
+							nodeEnforcer = "bpf"
+						}
+						log.Info(fmt.Sprintf("New pod was added, name=%s enforcer=%s", pod.Name, nodeEnforcer))
+						handlePod(c, pod, nodeEnforcer, &log)
 					}
-					log.Info(fmt.Sprintf("New pod was added, name=%s enforcer=%s", pod.Name, nodeEnforcer))
-					handlePod(c, pod, nodeEnforcer, &log)
 				}
 			}
 		},
@@ -170,14 +172,16 @@ func PodWatcher(c *kubernetes.Clientset, cluster *types.Cluster, log logr.Logger
 			}
 			if pod, ok := newObj.(*corev1.Pod); ok {
 				if pod.Spec.NodeName != "" {
-					nodeEnforcer := ""
-					if _, ok := cluster.Nodes[pod.Spec.NodeName]; ok {
-						nodeEnforcer = "apparmor"
-					} else {
-						nodeEnforcer = "bpf"
+					if !cluster.Nodes[pod.Spec.NodeName].SkipNode {
+						nodeEnforcer := ""
+						if _, ok := cluster.Nodes[pod.Spec.NodeName]; ok {
+							nodeEnforcer = "apparmor"
+						} else {
+							nodeEnforcer = "bpf"
+						}
+						log.Info(fmt.Sprintf("pod was updated, name=%s enforcer=%s", pod.Name, nodeEnforcer))
+						handlePod(c, pod, nodeEnforcer, &log)
 					}
-					log.Info(fmt.Sprintf("pod was updated, name=%s enforcer=%s", pod.Name, nodeEnforcer))
-					handlePod(c, pod, nodeEnforcer, &log)
 				}
 			}
 		},

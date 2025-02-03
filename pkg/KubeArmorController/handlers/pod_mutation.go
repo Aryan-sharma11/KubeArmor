@@ -43,14 +43,23 @@ func (a *PodAnnotator) Handle(ctx context.Context, req admission.Request) admiss
 	common.AddCommonAnnotations(pod)
 
 	// == Apparmor annotations == //
+
 	a.Cluster.ClusterLock.RLock()
 	homogenousApparmor := a.Cluster.HomogenousApparmor
-	a.Cluster.ClusterLock.RUnlock()
+	// not annotating pods having toleration with apparmor annotations
 
-	if homogenousApparmor {
+	skipnode := false
+	if len(pod.Spec.Tolerations) > 0 {
+		skipnode = true
+	} else if len(pod.Spec.NodeName) > 0 {
+		if a.Cluster.Nodes[pod.Spec.NodeName].SkipNode {
+			skipnode = true
+		}
+	}
+	a.Cluster.ClusterLock.RUnlock()
+	if homogenousApparmor && !skipnode {
 		common.AppArmorAnnotator(pod)
 	}
-
 	// == //
 	// send the mutation response
 	marshaledPod, err := json.Marshal(pod)
