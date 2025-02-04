@@ -56,7 +56,7 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		r.Cluster.ClusterLock.RLock()
 		if _, exist := r.Cluster.Nodes[pod.Spec.NodeName]; exist {
 			if r.Cluster.Nodes[pod.Spec.NodeName].SkipNode {
-				log.Info(fmt.Sprintf("skip annotating pod as it is in tainted node %s", pod.Spec.NodeName))
+				log.Info(fmt.Sprintf("skip annotating pod as kubearmor not present on node %s", pod.Spec.NodeName))
 				r.Cluster.ClusterLock.RUnlock()
 				continue
 			}
@@ -90,12 +90,10 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			// the pod is managed by a controller (e.g: replicaset)
 			if pod.OwnerReferences != nil && len(pod.OwnerReferences) != 0 {
 				// log.Info("Deleting pod " + pod.Name + "in namespace " + pod.Namespace + " as it is managed")
-				log.Info(" deployments will be restarted")
+				log.Info(fmt.Sprintf("deployment for pod %s will be restarted", pod.Name))
 				for _, ref := range pod.OwnerReferences {
 
 					if *ref.Controller {
-						fmt.Println("Pod with controller ")
-						fmt.Println(ref.Kind)
 						if ref.Kind == "ReplicaSet" {
 							replicaSet, err := r.Corev1.AppsV1().ReplicaSets(pod.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 							if err != nil {

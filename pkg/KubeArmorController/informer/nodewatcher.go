@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+	"github.com/kubearmor/KubeArmor/pkg/KubeArmorController/common"
 	"github.com/kubearmor/KubeArmor/pkg/KubeArmorController/types"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -42,11 +43,19 @@ func NodeWatcher(c *kubernetes.Clientset, cluster *types.Cluster, log logr.Logge
 						cluster.ClusterLock.Lock()
 						defer cluster.ClusterLock.Unlock()
 						cluster.TotalNodes++
-
 						if enforcer == "apparmor" {
+
+							cluster.Nodes[node.Name] = &types.NodeInfo{}
 							cluster.Nodes[node.Name].Enforcer = enforcer
-							if len(node.Spec.Taints) > 0 {
-								cluster.Nodes[node.Name].SkipNode = true
+							fmt.Println("adding enforcer")
+
+							skipnode, err := common.CheckKubearmorStatus(node.Name, c)
+							if err != nil {
+								log.Info(fmt.Sprintf("unable to get kubearmor status on node %s : %s", node.Name, err.Error()))
+							}
+							cluster.Nodes[node.Name].SkipNode = skipnode
+							if cluster.Nodes[node.Name].SkipNode {
+								log.Info(fmt.Sprintf("kubearmor not found on node %s", node.Name))
 							}
 						}
 						// re-compute homogeneous status
@@ -89,8 +98,15 @@ func NodeWatcher(c *kubernetes.Clientset, cluster *types.Cluster, log logr.Logge
 					} else {
 						if enforcer == "apparmor" {
 							cluster.Nodes[node.Name].Enforcer = enforcer
-							if len(node.Spec.Taints) > 0 {
-								cluster.Nodes[node.Name].SkipNode = true
+							var err error
+							skipnode, err := common.CheckKubearmorStatus(node.Name, c)
+							if err != nil {
+								log.Info(fmt.Sprintf("unable to get kubearmor status on node %s : %s", node.Name, err.Error()))
+							}
+							cluster.Nodes[node.Name].SkipNode = skipnode
+
+							if cluster.Nodes[node.Name].SkipNode {
+								log.Info(fmt.Sprintf("kubearmor not found on node %s", node.Name))
 							}
 						}
 					}
@@ -146,7 +162,6 @@ func NodeWatcher(c *kubernetes.Clientset, cluster *types.Cluster, log logr.Logge
 					}
 				}
 				cluster.HomogenousApparmor = homogeneousApparmor
-
 			}
 		},
 	})

@@ -167,10 +167,16 @@ rules:
   - watch  
   - update
 - apiGroups:
+  - "apps"
+  resources:
+  - replicasets
+  verbs:
+  - get
+  - list
+- apiGroups:
   - ""
   resources:
   - nodes
-  - replicasets
   verbs:
   - get
   - list

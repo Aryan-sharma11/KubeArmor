@@ -6,59 +6,107 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/go-logr/logr"
 	"github.com/kubearmor/KubeArmor/pkg/KubeArmorController/common"
 	"github.com/kubearmor/KubeArmor/pkg/KubeArmorController/types"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // PodAnnotator Structure
 type PodAnnotator struct {
-	Client  client.Client
-	Decoder admission.Decoder
-	Logger  logr.Logger
-	Cluster *types.Cluster
+	Client    client.Client
+	Decoder   admission.Decoder
+	Logger    logr.Logger
+	Cluster   *types.Cluster
+	ClientSet *kubernetes.Clientset
 }
 
-// +kubebuilder:webhook:path=/mutate-pods,mutating=true,failurePolicy=Ignore,groups="",resources=pods,verbs=create;update,versions=v1,name=annotation.kubearmor.com,admissionReviewVersions=v1,sideEffects=NoneOnDryRun
+// +kubebuilder:webhook:path=/mutate-pods,mutating=true,failurePolicy=Ignore,groups="",resources=pods;pods/binding,verbs=create;update,versions=v1,name=annotation.kubearmor.com,admissionReviewVersions=v1,sideEffects=NoneOnDryRun
 
 // Handle Pod Annotation
 func (a *PodAnnotator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	pod := &corev1.Pod{}
 
+	// if it is pod/binding event
+	if req.Kind.Kind == "Binding" {
+		binding := &corev1.Binding{}
+		a.Logger.Info(fmt.Sprintf("pod mutation %s", req.Kind.Kind))
+
+		if err := a.Decoder.Decode(req, binding); err != nil {
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+
+		// Decode will omit sometimes the namespace value for some reason copying it manually
+		if binding.Namespace == "" {
+			binding.Namespace = req.Namespace
+		}
+
+		// == common annotations == //
+		common.AddCommonAnnotationsbinding(binding)
+
+		pod, err := a.ClientSet.CoreV1().Pods(binding.Namespace).Get(context.TODO(), binding.Name, metav1.GetOptions{})
+		if err != nil {
+			a.Logger.Error(err, "failed to get pod info")
+		}
+		nodename := binding.Target.Name
+		apparmor := false
+		// == Apparmor annotations == //
+		a.Cluster.ClusterLock.RLock()
+		// homogenousApparmor := a.Cluster.HomogenousApparmor
+		if _, exist := a.Cluster.Nodes[nodename]; exist {
+			fmt.Println("")
+			if !a.Cluster.Nodes[nodename].SkipNode {
+				apparmor = true
+			}
+		}
+		a.Cluster.ClusterLock.RUnlock()
+		if apparmor {
+			common.AppArmorAnnotatorBinding(binding, pod)
+		}
+		// == //
+		// send the mutation response
+		marshaledPod, err := json.Marshal(binding)
+		if err != nil {
+			return admission.Errored(http.StatusInternalServerError, err)
+		}
+		return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+
+	}
+	// If it is pod CreateEvent
+	pod := &corev1.Pod{}
 	if err := a.Decoder.Decode(req, pod); err != nil {
 		return admission.Errored(http.StatusBadRequest, err)
 	}
+	if pod.Spec.NodeName != "" {
 
-	// Decode will omit sometimes the namespace value for some reason copying it manually
-	if pod.Namespace == "" {
-		pod.Namespace = req.Namespace
-	}
-
-	// == common annotations == //
-	common.AddCommonAnnotations(pod)
-
-	// == Apparmor annotations == //
-
-	a.Cluster.ClusterLock.RLock()
-	homogenousApparmor := a.Cluster.HomogenousApparmor
-	// not annotating pods having toleration with apparmor annotations
-
-	skipnode := false
-	if len(pod.Spec.Tolerations) > 0 {
-		skipnode = true
-	} else if len(pod.Spec.NodeName) > 0 {
-		if a.Cluster.Nodes[pod.Spec.NodeName].SkipNode {
-			skipnode = true
+		// Decode will omit sometimes the namespace value for some reason copying it manually
+		if pod.Namespace == "" {
+			pod.Namespace = req.Namespace
 		}
-	}
-	a.Cluster.ClusterLock.RUnlock()
-	if homogenousApparmor && !skipnode {
-		common.AppArmorAnnotator(pod)
+		// == common annotations == //
+		common.AddCommonAnnotations(pod)
+		nodename := pod.Spec.NodeName
+		apparmor := false
+		// == Apparmor annotations == //
+		a.Cluster.ClusterLock.RLock()
+		// homogenousApparmor := a.Cluster.HomogenousApparmor
+		if _, exist := a.Cluster.Nodes[nodename]; exist {
+			if !a.Cluster.Nodes[nodename].SkipNode {
+				apparmor = true
+			}
+		}
+		a.Cluster.ClusterLock.RUnlock()
+		if apparmor {
+			common.AppArmorAnnotator(pod)
+		}
+
 	}
 	// == //
 	// send the mutation response
@@ -67,4 +115,5 @@ func (a *PodAnnotator) Handle(ctx context.Context, req admission.Request) admiss
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+
 }

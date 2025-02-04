@@ -612,12 +612,18 @@ func GetKubeArmorControllerClusterRole() *rbacv1.ClusterRole {
 			},
 			{
 				APIGroups: []string{"apps"},
-				Resources: []string{"deployments","statefulsets","daemonsets"},
-				Verbs:     []string{"get","list", "watch", "update"},
+				Resources: []string{"deployments", "statefulsets", "daemonsets"},
+				Verbs:     []string{"get", "list", "watch", "update"},
 			},
 			{
+				APIGroups: []string{"apps"},
+				Resources: []string{"replicasets"},
+				Verbs:     []string{"get", "list"},
+			},
+
+			{
 				APIGroups: []string{""},
-				Resources: []string{"nodes","replicasets"},
+				Resources: []string{"nodes"},
 				Verbs:     []string{"get", "list", "watch"},
 			},
 			{
@@ -774,7 +780,7 @@ func GetKubeArmorControllerMutationAdmissionConfiguration(namespace string, caCe
 						Rule: admissionregistrationv1.Rule{
 							APIGroups:   []string{""},
 							APIVersions: []string{"v1"},
-							Resources:   []string{"pods"},
+							Resources:   []string{"pods", "pods/binding"},
 						},
 						Operations: []admissionregistrationv1.OperationType{
 							admissionregistrationv1.Create,
