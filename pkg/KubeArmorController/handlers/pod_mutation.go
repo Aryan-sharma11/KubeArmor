@@ -6,7 +6,6 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/go-logr/logr"
@@ -37,8 +36,6 @@ func (a *PodAnnotator) Handle(ctx context.Context, req admission.Request) admiss
 	// if it is pod/binding event
 	if req.Kind.Kind == "Binding" {
 		binding := &corev1.Binding{}
-		a.Logger.Info(fmt.Sprintf("pod mutation %s", req.Kind.Kind))
-
 		if err := a.Decoder.Decode(req, binding); err != nil {
 			return admission.Errored(http.StatusBadRequest, err)
 		}
@@ -56,18 +53,17 @@ func (a *PodAnnotator) Handle(ctx context.Context, req admission.Request) admiss
 			a.Logger.Error(err, "failed to get pod info")
 		}
 		nodename := binding.Target.Name
-		apparmor := false
+		annotate := false
 		// == Apparmor annotations == //
 		a.Cluster.ClusterLock.RLock()
 		// homogenousApparmor := a.Cluster.HomogenousApparmor
 		if _, exist := a.Cluster.Nodes[nodename]; exist {
-			fmt.Println("")
-			if !a.Cluster.Nodes[nodename].SkipNode {
-				apparmor = true
+			if !a.Cluster.Nodes[nodename].KubeArmorActive {
+				annotate = true
 			}
 		}
 		a.Cluster.ClusterLock.RUnlock()
-		if apparmor {
+		if annotate {
 			common.AppArmorAnnotatorBinding(binding, pod)
 		}
 		// == //

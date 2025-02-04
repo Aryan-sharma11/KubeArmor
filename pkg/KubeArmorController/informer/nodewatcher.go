@@ -49,11 +49,11 @@ func NodeWatcher(c *kubernetes.Clientset, cluster *types.Cluster, log logr.Logge
 							cluster.Nodes[node.Name].Enforcer = enforcer
 							fmt.Println("adding enforcer")
 
-							skipnode, err := common.CheckKubearmorStatus(node.Name, c)
+							kubearmorStatus, err := common.CheckKubearmorStatus(node.Name, c)
 							if err != nil {
 								log.Info(fmt.Sprintf("unable to get kubearmor status on node %s : %s", node.Name, err.Error()))
 							}
-							cluster.Nodes[node.Name].SkipNode = skipnode
+							cluster.Nodes[node.Name].KubeArmorActive = kubearmorStatus
 							if cluster.Nodes[node.Name].SkipNode {
 								log.Info(fmt.Sprintf("kubearmor not found on node %s", node.Name))
 							}
@@ -99,11 +99,11 @@ func NodeWatcher(c *kubernetes.Clientset, cluster *types.Cluster, log logr.Logge
 						if enforcer == "apparmor" {
 							cluster.Nodes[node.Name].Enforcer = enforcer
 							var err error
-							skipnode, err := common.CheckKubearmorStatus(node.Name, c)
+							kubearmorStatus, err := common.CheckKubearmorStatus(node.Name, c)
 							if err != nil {
 								log.Info(fmt.Sprintf("unable to get kubearmor status on node %s : %s", node.Name, err.Error()))
 							}
-							cluster.Nodes[node.Name].SkipNode = skipnode
+							cluster.Nodes[node.Name].KubeArmorActive = kubearmorStatus
 
 							if cluster.Nodes[node.Name].SkipNode {
 								log.Info(fmt.Sprintf("kubearmor not found on node %s", node.Name))

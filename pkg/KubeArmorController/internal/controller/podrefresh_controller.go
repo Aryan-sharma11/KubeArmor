@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/kubearmor/KubeArmor/pkg/KubeArmorController/common"
-	"github.com/kubearmor/KubeArmor/pkg/KubeArmorController/informer"
 	"github.com/kubearmor/KubeArmor/pkg/KubeArmorController/types"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -55,7 +54,7 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 		r.Cluster.ClusterLock.RLock()
 		if _, exist := r.Cluster.Nodes[pod.Spec.NodeName]; exist {
-			if r.Cluster.Nodes[pod.Spec.NodeName].SkipNode {
+			if !r.Cluster.Nodes[pod.Spec.NodeName].KubeArmorActive {
 				log.Info(fmt.Sprintf("skip annotating pod as kubearmor not present on node %s", pod.Spec.NodeName))
 				r.Cluster.ClusterLock.RUnlock()
 				continue
@@ -177,7 +176,7 @@ func requireRestart(pod corev1.Pod, enforcer string) bool {
 	}
 
 	// !hasApparmorAnnotations && enforcer == "apparmor"
-	if informer.HandleAppArmor(pod.Annotations) && enforcer == "apparmor" {
+	if common.HandleAppArmor(pod.Annotations) && enforcer == "apparmor" {
 		return true
 	}
 

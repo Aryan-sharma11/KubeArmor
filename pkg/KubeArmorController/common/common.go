@@ -241,3 +241,46 @@ func CheckKubearmorStatus(nodeName string, c *kubernetes.Clientset) (bool, error
 	return false, nil
 
 }
+func hasApparmorAnnotation(annotations map[string]string) bool {
+	for key := range annotations {
+		if strings.HasPrefix(key, "container.apparmor.security.beta.kubernetes.io/") {
+			return true
+		}
+	}
+	return false
+}
+
+func HandleAppArmor(annotations map[string]string) bool {
+	return !hasApparmorAnnotation(annotations)
+}
+
+func HandleBPF(annotations map[string]string) bool {
+	return hasApparmorAnnotation(annotations)
+}
+
+func IsAppArmorExempt(labels map[string]string, namespace string) bool {
+
+	// exception: kubernetes app
+	if namespace == "kube-system" {
+		if _, ok := labels["k8s-app"]; ok {
+			return true
+		}
+
+		if value, ok := labels["component"]; ok {
+			if value == "etcd" || value == "kube-apiserver" || value == "kube-controller-manager" || value == "kube-scheduler" || value == "kube-proxy" {
+				return true
+			}
+		}
+	}
+
+	// exception: cilium-operator
+	if _, ok := labels["io.cilium/app"]; ok {
+		return true
+	}
+
+	// exception: kubearmor
+	if _, ok := labels["kubearmor-app"]; ok {
+		return true
+	}
+	return false
+}
