@@ -18,7 +18,6 @@ type Cluster struct {
 	TotalNodes         int //total no of nodes present
 }
 type NodeInfo struct {
-	SkipNode        bool
 	KubeArmorActive bool
 	Enforcer        string
 }

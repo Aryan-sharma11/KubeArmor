@@ -58,7 +58,7 @@ func (a *PodAnnotator) Handle(ctx context.Context, req admission.Request) admiss
 		a.Cluster.ClusterLock.RLock()
 		// homogenousApparmor := a.Cluster.HomogenousApparmor
 		if _, exist := a.Cluster.Nodes[nodename]; exist {
-			if !a.Cluster.Nodes[nodename].KubeArmorActive {
+			if a.Cluster.Nodes[nodename].KubeArmorActive {
 				annotate = true
 			}
 		}
@@ -89,17 +89,17 @@ func (a *PodAnnotator) Handle(ctx context.Context, req admission.Request) admiss
 		// == common annotations == //
 		common.AddCommonAnnotations(pod)
 		nodename := pod.Spec.NodeName
-		apparmor := false
+		annotate := false
 		// == Apparmor annotations == //
 		a.Cluster.ClusterLock.RLock()
 		// homogenousApparmor := a.Cluster.HomogenousApparmor
 		if _, exist := a.Cluster.Nodes[nodename]; exist {
-			if !a.Cluster.Nodes[nodename].SkipNode {
-				apparmor = true
+			if a.Cluster.Nodes[nodename].KubeArmorActive {
+				annotate = true
 			}
 		}
 		a.Cluster.ClusterLock.RUnlock()
-		if apparmor {
+		if annotate {
 			common.AppArmorAnnotator(pod)
 		}
 
