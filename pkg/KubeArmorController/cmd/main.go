@@ -157,24 +157,23 @@ func main() {
 	cluster := informer.InitCluster()
 	setupLog.Info("Starting node watcher")
 	go informer.NodeWatcher(client, &cluster, ctrl.Log.WithName("informer").WithName("NodeWatcher"))
-	setupLog.Info("Starting pod watcher")
-	go informer.PodWatcher(client, &cluster, ctrl.Log.WithName("informer").WithName("PodWatcher"))
 
 	setupLog.Info("Adding mutation webhook")
 	mgr.GetWebhookServer().Register("/mutate-pods", &webhook.Admission{
 		Handler: &handlers.PodAnnotator{
-			Client:  mgr.GetClient(),
-			Logger:  setupLog,
-			Decoder: admission.NewDecoder(mgr.GetScheme()),
-			Cluster: &cluster,
+			Client:    mgr.GetClient(),
+			Logger:    setupLog,
+			Decoder:   admission.NewDecoder(mgr.GetScheme()),
+			Cluster:   &cluster,
+			ClientSet: client,
 		},
 	})
-
 	setupLog.Info("Adding pod refresher controller")
 	if err = (&controllers.PodRefresherReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Cluster: &cluster,
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Cluster:   &cluster,
+		ClientSet: client,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Pod")
 		os.Exit(1)
