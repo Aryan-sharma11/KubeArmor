@@ -22,9 +22,9 @@ import (
 
 type PodRefresherReconciler struct {
 	client.Client
-	Scheme  *runtime.Scheme
-	Cluster *types.Cluster
-	Corev1  *kubernetes.Clientset
+	Scheme    *runtime.Scheme
+	Cluster   *types.Cluster
+	ClientSet *kubernetes.Clientset
 }
 type ResourceInfo struct {
 	kind          string
@@ -66,13 +66,14 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		} else {
 			enforcer = "bpf"
 		}
-
 		r.Cluster.ClusterLock.RUnlock()
 
 		if _, ok := pod.Annotations["kubearmor-policy"]; !ok {
 			orginalPod := pod.DeepCopy()
-			common.AddCommonAnnotations(&pod)
+			common.AddCommonAnnotations(&pod.ObjectMeta)
 			patch := client.MergeFrom(orginalPod)
+			fmt.Println("patch:", patch)
+			fmt.Println("pod", pod)
 			err := r.Patch(ctx, &pod, patch)
 			if err != nil {
 				if !errors.IsNotFound(err) {
@@ -89,12 +90,11 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			// the pod is managed by a controller (e.g: replicaset)
 			if pod.OwnerReferences != nil && len(pod.OwnerReferences) != 0 {
 				// log.Info("Deleting pod " + pod.Name + "in namespace " + pod.Namespace + " as it is managed")
-				log.Info(fmt.Sprintf("deployment for pod %s will be restarted", pod.Name))
 				for _, ref := range pod.OwnerReferences {
 
 					if *ref.Controller {
 						if ref.Kind == "ReplicaSet" {
-							replicaSet, err := r.Corev1.AppsV1().ReplicaSets(pod.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
+							replicaSet, err := r.ClientSet.AppsV1().ReplicaSets(pod.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 							if err != nil {
 								log.Error(err, fmt.Sprintf("Failed to get ReplicaSet %s:", ref.Name))
 								continue
@@ -147,7 +147,7 @@ func (r *PodRefresherReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	restartResources(deploymentMap, r.Corev1)
+	restartResources(deploymentMap, r.ClientSet)
 
 	// give time for pods to be deleted
 	if poddeleted {
@@ -184,7 +184,6 @@ func requireRestart(pod corev1.Pod, enforcer string) bool {
 }
 func restartResources(resourcesMap map[string]ResourceInfo, corev1 *kubernetes.Clientset) error {
 
-	patchannotation := "kubearmor.kubernetes.io/restartedAt"
 	ctx := context.Background()
 	log := log.FromContext(ctx)
 	for name, resInfo := range resourcesMap {
@@ -193,13 +192,14 @@ func restartResources(resourcesMap map[string]ResourceInfo, corev1 *kubernetes.C
 			dep, err := corev1.AppsV1().Deployments(resInfo.namespaceName).Get(ctx, name, metav1.GetOptions{})
 			if err != nil {
 				log.Error(err, fmt.Sprintf("error geting deployment %s in namespace %s", name, resInfo.namespaceName))
+				continue
 			}
-			log.Info("restarting deployment %s in namespace %s", name, resInfo.namespaceName)
+			log.Info(fmt.Sprintf("restarting deployment %s in namespace %s", name, resInfo.namespaceName))
 			// Update the Pod template's annotations to trigger a rolling restart
 			if dep.Spec.Template.Annotations == nil {
 				dep.Spec.Template.Annotations = make(map[string]string)
 			}
-			dep.Spec.Template.Annotations[patchannotation] = time.Now().Format(time.RFC3339)
+			dep.Spec.Template.Annotations[common.KubeArmorRestartedAnnotation] = time.Now().Format(time.RFC3339)
 			// Patch the Deployment
 			_, err = corev1.AppsV1().Deployments(resInfo.namespaceName).Update(ctx, dep, metav1.UpdateOptions{})
 			if err != nil {
@@ -209,13 +209,14 @@ func restartResources(resourcesMap map[string]ResourceInfo, corev1 *kubernetes.C
 			statefulSet, err := corev1.AppsV1().StatefulSets(resInfo.namespaceName).Get(ctx, name, metav1.GetOptions{})
 			if err != nil {
 				log.Error(err, fmt.Sprintf("error geting statefulset %s in namespace %s", name, resInfo.namespaceName))
+				continue
 			}
 			log.Info("restarting statefulset " + name + " in namespace " + resInfo.namespaceName)
 			// Update the Pod template's annotations to trigger a rolling restart
 			if statefulSet.Spec.Template.Annotations == nil {
 				statefulSet.Spec.Template.Annotations = make(map[string]string)
 			}
-			statefulSet.Spec.Template.Annotations[patchannotation] = time.Now().Format(time.RFC3339)
+			statefulSet.Spec.Template.Annotations[common.KubeArmorRestartedAnnotation] = time.Now().Format(time.RFC3339)
 			// Patch the Deployment
 			_, err = corev1.AppsV1().StatefulSets(resInfo.namespaceName).Update(ctx, statefulSet, metav1.UpdateOptions{})
 			if err != nil {
@@ -226,13 +227,14 @@ func restartResources(resourcesMap map[string]ResourceInfo, corev1 *kubernetes.C
 			daemonSet, err := corev1.AppsV1().DaemonSets(resInfo.namespaceName).Get(ctx, name, metav1.GetOptions{})
 			if err != nil {
 				log.Error(err, fmt.Sprintf("error geting daemonset %s in namespace %s", name, resInfo.namespaceName))
+				continue
 			}
 			log.Info("restarting daemonset " + name + " in namespace " + resInfo.namespaceName)
 			// Update the Pod template's annotations to trigger a rolling restart
 			if daemonSet.Spec.Template.Annotations == nil {
 				daemonSet.Spec.Template.Annotations = make(map[string]string)
 			}
-			daemonSet.Spec.Template.Annotations[patchannotation] = time.Now().Format(time.RFC3339)
+			daemonSet.Spec.Template.Annotations[common.KubeArmorRestartedAnnotation] = time.Now().Format(time.RFC3339)
 			// Patch the Deployment
 			_, err = corev1.AppsV1().DaemonSets(resInfo.namespaceName).Update(ctx, daemonSet, metav1.UpdateOptions{})
 			if err != nil {

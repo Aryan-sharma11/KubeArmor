@@ -46,7 +46,7 @@ func (a *PodAnnotator) Handle(ctx context.Context, req admission.Request) admiss
 		}
 
 		// == common annotations == //
-		common.AddCommonAnnotationsbinding(binding)
+		common.AddCommonAnnotations(&binding.ObjectMeta)
 
 		pod, err := a.ClientSet.CoreV1().Pods(binding.Namespace).Get(context.TODO(), binding.Name, metav1.GetOptions{})
 		if err != nil {
@@ -64,7 +64,7 @@ func (a *PodAnnotator) Handle(ctx context.Context, req admission.Request) admiss
 		}
 		a.Cluster.ClusterLock.RUnlock()
 		if annotate {
-			common.AppArmorAnnotatorBinding(binding, pod)
+			common.AppArmorAnnotator(pod, binding, true)
 		}
 		// == //
 		// send the mutation response
@@ -87,7 +87,7 @@ func (a *PodAnnotator) Handle(ctx context.Context, req admission.Request) admiss
 			pod.Namespace = req.Namespace
 		}
 		// == common annotations == //
-		common.AddCommonAnnotations(pod)
+		common.AddCommonAnnotations(&pod.ObjectMeta)
 		nodename := pod.Spec.NodeName
 		annotate := false
 		// == Apparmor annotations == //
@@ -100,7 +100,7 @@ func (a *PodAnnotator) Handle(ctx context.Context, req admission.Request) admiss
 		}
 		a.Cluster.ClusterLock.RUnlock()
 		if annotate {
-			common.AppArmorAnnotator(pod)
+			common.AppArmorAnnotator(pod, nil, false)
 		}
 
 	}

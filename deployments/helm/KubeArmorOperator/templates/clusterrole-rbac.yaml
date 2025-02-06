@@ -161,18 +161,10 @@ rules:
   - deployments
   - statefulsets
   - daemonsets
-  verbs:
-  - get
-  - list
-  - watch  
-  - update
-- apiGroups:
-  - "apps"
-  resources:
   - replicasets
   verbs:
   - get
-  - list
+  - update
 - apiGroups:
   - ""
   resources:

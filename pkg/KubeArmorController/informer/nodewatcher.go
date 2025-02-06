@@ -54,7 +54,7 @@ func NodeWatcher(c *kubernetes.Clientset, cluster *types.Cluster, log logr.Logge
 							}
 							cluster.Nodes[node.Name].KubeArmorActive = kubearmorStatus
 							if !cluster.Nodes[node.Name].KubeArmorActive {
-								log.Info(fmt.Sprintf("kubearmor not found on node %s", node.Name))
+								log.Info(fmt.Sprintf("kubearmor not found on node %s :", node.Name))
 							}
 						}
 						// re-compute homogeneous status
@@ -95,8 +95,10 @@ func NodeWatcher(c *kubernetes.Clientset, cluster *types.Cluster, log logr.Logge
 							delete(cluster.Nodes, node.Name)
 						}
 					}
-
 					if enforcer == "apparmor" {
+						if _, ok := cluster.Nodes[node.Name]; !ok {
+							cluster.Nodes[node.Name] = &types.NodeInfo{}
+						}
 						cluster.Nodes[node.Name].Enforcer = enforcer
 						var err error
 						kubearmorStatus, err := common.CheckKubearmorStatus(node.Name, c)
