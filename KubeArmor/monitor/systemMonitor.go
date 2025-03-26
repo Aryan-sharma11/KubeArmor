@@ -793,9 +793,9 @@ func (mon *SystemMonitor) TraceSyscall() {
 					if !strings.HasPrefix(strings.Split(execPath, " ")[0], "/") && log.Cwd != "/" {
 						execPath = filepath.Join(log.Cwd, execPath)
 					}
-
+					parentExecPath := mon.GetExecPath(containerID, ctx, false, true)
 					// build a pid node
-					pidNode := mon.BuildPidNode(containerID, ctx, execPath, nodeArgs, false)
+					pidNode := mon.BuildPidNode(containerID, ctx, execPath, parentExecPath, nodeArgs)
 					mon.AddActivePid(containerID, pidNode)
 
 					// add arguments
@@ -869,7 +869,8 @@ func (mon *SystemMonitor) TraceSyscall() {
 					default:
 						mon.Logger.Warnf("Unexpected args[2] type")
 					}
-					pidNode := mon.BuildPidNode(containerID, ctx, execPath, args_2, false)
+					parentExecPath := mon.GetExecPath(containerID, ctx, false, true)
+					pidNode := mon.BuildPidNode(containerID, ctx, execPath, parentExecPath, args_2)
 					mon.AddActivePid(containerID, pidNode)
 
 					fd := ""

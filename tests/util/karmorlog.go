@@ -93,7 +93,6 @@ func KarmorGetTargetLogs(timeout time.Duration, target *pb.Log) (EventResult, er
 }
 
 func getAlertWithInfo(alert *pb.Alert, target *pb.Alert) bool {
-
 	if target.PolicyName != "" {
 		if alert.PolicyName != target.PolicyName {
 			return false
@@ -172,7 +171,6 @@ func KarmorGetTargetAlert(timeout time.Duration, target *pb.Alert) (EventResult,
 
 			if getAlertWithInfo(&alert, target) {
 				log.Printf("Found Target Alert")
-				fmt.Printf("Alert: %s\n", &alert)
 				res.Found = true
 				return res, nil
 

@@ -81,11 +81,11 @@ func (mon *SystemMonitor) BuildLogBase(eventID int32, msg ContextCombined, readl
 		log.PID = int32(msg.ContextSys.PID)
 		log.UID = int32(msg.ContextSys.UID)
 
-		log.ProcessName = mon.GetExecPath(msg.ContainerID, msg.ContextSys, readlink)
-		log.ParentProcessName = mon.GetParentExecPath(msg.ContainerID, msg.ContextSys, readlink, false)
+		log.ProcessName = mon.GetExecPath(msg.ContainerID, msg.ContextSys, readlink, false)
+		log.ParentProcessName = mon.GetExecPath(msg.ContainerID, msg.ContextSys, readlink, true)
 
 		if msg.ContextSys.EventID == SysExecve || msg.ContextSys.EventID == SysExecveAt {
-			log.Source = mon.GetParentExecPath(msg.ContainerID, msg.ContextSys, readlink, false)
+			log.Source = mon.GetExecPath(msg.ContainerID, msg.ContextSys, readlink, true)
 		} else {
 			log.Source = mon.GetCommand(msg.ContainerID, msg.ContextSys, readlink)
 		}
@@ -104,13 +104,12 @@ func (mon *SystemMonitor) UpdateLogBase(ctx SyscallContext, log tp.Log) tp.Log {
 	// update the process paths, since we would have received actual exec paths from bprm hook
 	// in case bprm hook has not populated the map with full path, we will fallback to reading from procfs
 	// else we will send out relative path
-
-	processName := mon.GetExecPath(log.ContainerID, ctx, true)
+	processName := mon.GetExecPath(log.ContainerID, ctx, true, false)
 	if processName != "" {
 		log.ProcessName = processName
 	}
 
-	parentProcessName := mon.GetParentExecPath(log.ContainerID, ctx, true, false)
+	parentProcessName := mon.GetExecPath(log.ContainerID, ctx, true, true)
 	if parentProcessName != "" {
 		log.ParentProcessName = parentProcessName
 		log.Source = parentProcessName

@@ -127,7 +127,8 @@ func (mon *SystemMonitor) DeleteContainerIDFromNsMap(containerID string, namespa
 // ================== //
 
 // BuildPidNode Function
-func (mon *SystemMonitor) BuildPidNode(containerID string, ctx SyscallContext, execPath string, args []string, lock bool) tp.PidNode {
+func (mon *SystemMonitor) BuildPidNode(containerID string, ctx SyscallContext, execPath, parentExecPath string, args []string) tp.PidNode {
+
 	node := tp.PidNode{}
 
 	node.HostPPID = ctx.HostPPID
@@ -137,7 +138,7 @@ func (mon *SystemMonitor) BuildPidNode(containerID string, ctx SyscallContext, e
 	node.PID = ctx.PID
 	node.UID = ctx.UID
 
-	node.ParentExecPath = mon.GetParentExecPath(containerID, ctx, false, lock)
+	node.ParentExecPath = parentExecPath
 	node.ExecPath = execPath
 
 	node.Source = execPath
@@ -154,7 +155,6 @@ func (mon *SystemMonitor) BuildPidNode(containerID string, ctx SyscallContext, e
 	}
 
 	node.Exited = false
-
 	return node
 }
 
@@ -204,99 +204,46 @@ func (mon *SystemMonitor) UpdateExecPath(containerID string, hostPid uint32, exe
 	}
 }
 
-// GetParentExecPath Function
-func (mon *SystemMonitor) GetParentExecPath(containerID string, ctx SyscallContext, readlink bool, lock bool) string {
+func (mon *SystemMonitor) GetExecPath(containerID string, ctx SyscallContext, readlink bool, parent bool) string {
 	ActiveHostPidMap := *(mon.ActiveHostPidMap)
 	ActivePidMapLock := *(mon.ActivePidMapLock)
-	if !lock {
-		ActivePidMapLock.Lock()
-		defer ActivePidMapLock.Unlock()
-	}
-
 	path := ""
-
-	if pidMap, ok := ActiveHostPidMap[containerID]; ok {
-		if node, ok := pidMap[ctx.HostPID]; ok {
-			path = node.ParentExecPath
-			if path != "/" && strings.HasPrefix(path, "/") {
-				return path
-			}
-		}
-		// check if parent pid node exists
-		if node, ok := pidMap[ctx.HostPPID]; ok {
-			path = node.ExecPath
-			if path != "/" && strings.HasPrefix(path, "/") {
-				return path
-			}
-		}
-	}
-
-	if readlink {
-		// just in case that it couldn't still get the full path
-		if data, err := os.Readlink(filepath.Join(cfg.GlobalCfg.ProcFsMount, strconv.FormatUint(uint64(ctx.HostPPID), 10), "/exe")); err == nil && data != "" && data != "/" {
-			// // Store it in the ActiveHostPidMap so we don't need to read procfs again
-			// // We don't call BuildPidNode Here cause that will put this into a cyclic function call loop
-			if pidMap, ok := ActiveHostPidMap[containerID]; ok {
-				if node, ok := pidMap[ctx.HostPPID]; ok {
-					node.ExecPath = data
-					pidMap[ctx.HostPPID] = node
-				} else if node, ok := pidMap[ctx.HostPID]; ok {
-					node.ParentExecPath = data
-					pidMap[ctx.HostPID] = node
-				}
-			}
-			return data
-		} else if err != nil {
-			mon.Logger.Debugf("Could not read path from procfs due to %s", err.Error())
-		} else {
-			mon.Logger.Debugf("Could not read path from procfs due to unknown error")
-		}
-	}
-
-	// return non full path
-	return path
-}
-
-// GetExecPath Function
-func (mon *SystemMonitor) GetExecPath(containerID string, ctx SyscallContext, readlink bool) string {
-	ActiveHostPidMap := *(mon.ActiveHostPidMap)
-	ActivePidMapLock := *(mon.ActivePidMapLock)
-
 	ActivePidMapLock.Lock()
 	defer ActivePidMapLock.Unlock()
 
-	path := ""
-
-	if pidMap, ok := ActiveHostPidMap[containerID]; ok {
-		if node, ok := pidMap[ctx.HostPID]; ok {
-			path = node.ExecPath
-			if path != "/" && strings.HasPrefix(path, "/") {
-				return path
-			}
-		}
-	}
+	path = mon.getPathFromMap(ActiveHostPidMap, containerID, ctx, parent)
 
 	if readlink {
+		lookupPID := ctx.HostPID
+		if parent {
+			lookupPID = ctx.HostPPID
+		}
 		// just in case that it couldn't still get the full path
-		if data, err := os.Readlink(filepath.Join(cfg.GlobalCfg.ProcFsMount, strconv.FormatUint(uint64(ctx.HostPID), 10), "/exe")); err == nil && data != "" && data != "/" {
-			// // Store it in the ActiveHostPidMap so we don't need to read procfs again
+		data := mon.getReadLinkData(lookupPID)
+		if data != "" {
 			if pidMap, ok := ActiveHostPidMap[containerID]; ok {
 				if node, ok := pidMap[ctx.HostPID]; ok {
-					node.ExecPath = data
+					if parent {
+						node.ParentExecPath = data
+					} else {
+						node.ExecPath = data
+					}
 					pidMap[ctx.HostPID] = node
+				} else if parent {
+					if node, ok := pidMap[ctx.HostPPID]; ok {
+						node.ExecPath = data
+						pidMap[ctx.HostPPID] = node
+					}
 				} else {
-					newPidNode := mon.BuildPidNode(containerID, ctx, data, []string{}, true)
+					parentData := mon.getPathFromMap(ActiveHostPidMap, containerID, ctx, true)
+					newPidNode := mon.BuildPidNode(containerID, ctx, data, parentData, []string{})
 					pidMap[ctx.HostPID] = newPidNode
 				}
+
 			}
 			return data
-		} else if err != nil {
-			mon.Logger.Debugf("Could not read path from procfs due to %s", err.Error())
-		} else {
-			mon.Logger.Debugf("Could not read path from procfs due to an unknown error")
 		}
 	}
-
 	// return non full path
 	return path
 }
@@ -328,7 +275,6 @@ func (mon *SystemMonitor) GetCommand(containerID string, ctx SyscallContext, rea
 			mon.Logger.Debugf("Could not read path from procfs due to an unknown error")
 		}
 	}
-
 	return ""
 }
 
@@ -406,4 +352,40 @@ func (mon *SystemMonitor) CleanUpExitedHostPids() {
 		time.Sleep(10 * time.Second)
 	}
 
+}
+
+func (mon *SystemMonitor) getPathFromMap(ActiveHostPidMap map[string]tp.PidMap, containerID string, ctx SyscallContext, parent bool) string {
+	path := ""
+	if pidMap, ok := ActiveHostPidMap[containerID]; ok {
+		if node, ok := pidMap[ctx.HostPID]; ok {
+			if parent {
+				path = node.ParentExecPath
+			} else {
+				path = node.ExecPath
+			}
+			if path != "/" && strings.HasPrefix(path, "/") {
+				return path
+			}
+		} else if parent {
+			if node, ok := pidMap[ctx.HostPPID]; ok {
+				path = node.ExecPath
+				if path != "/" && strings.HasPrefix(path, "/") {
+					return path
+				}
+			}
+		}
+
+	}
+	return path
+}
+func (mon *SystemMonitor) getReadLinkData(lookupPID uint32) string {
+	if data, err := os.Readlink(filepath.Join(cfg.GlobalCfg.ProcFsMount, strconv.FormatUint(uint64(lookupPID), 10), "/exe")); err == nil && data != "" && data != "/" {
+		return data
+	} else if err != nil {
+		mon.Logger.Debugf("Could not read path from procfs due to %s", err.Error())
+		return ""
+	} else {
+		mon.Logger.Debugf("Could not read path from procfs due to an unknown error")
+		return ""
+	}
 }
