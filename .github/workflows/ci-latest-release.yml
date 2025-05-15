@@ -71,6 +71,8 @@ jobs:
       - name: Get release tag
         id: vars
         run: |
+          git tag
+          git fetch --tags
           if [[ ${{ github.event_name }} == "workflow_dispatch" ]]; then
             # checkout branch but use goreleaser config from latest
             echo "Checking out tag: ${{ inputs.tag }}"
