@@ -49,7 +49,7 @@ jobs:
   build:
     name: Create KubeArmor latest release
     needs: check
-    if: github.repository == 'kubearmor/kubearmor' && (needs.check.outputs.kubearmor == 'true' || ${{ github.ref }} != 'refs/heads/main')
+    if: github.repository == 'Aryan-sharma11/kubearmor' && (needs.check.outputs.kubearmor == 'true' || ${{ github.ref }} != 'refs/heads/main')
     runs-on: ubuntu-22.04
     permissions:
       id-token: write
