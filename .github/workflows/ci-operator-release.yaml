@@ -29,7 +29,7 @@ env:
 jobs:
   kubearmor-operator-release:
     name: Build & Push KubeArmor Operator
-    if: github.repository == 'kubearmor/kubearmor'        
+    if: github.repository == 'Aryan-sharma11/kubearmor'        
     runs-on: ubuntu-22.04
     permissions:
       id-token: write
