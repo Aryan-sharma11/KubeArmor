@@ -82,7 +82,7 @@ jobs:
               await exec.exec('git', ['checkout', tag]);
             } else {
               const ref = context.ref;
-              const tag = ref === "refs/heads/main" ? "latest" : ref.replace(/^refs\/[^/]+\//, "");
+              tag = ref === "refs/heads/main" ? "latest" : ref.replace(/^refs\/[^/]+\//, "");
             }
             core.setOutput('tag', tag);
             console.log(`Creating latest release with tag: ${tag}`);
