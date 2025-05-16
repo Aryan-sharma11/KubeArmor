@@ -23,7 +23,7 @@ kubearmorRelay:
   tolerations: ""
 
   # Add environment variables for STDOUT logging
-  enableStdoutLogs: "false"
+  enableStdoutLogs: "false"git 
   enableStdoutAlerts: "false"
   enableStdoutMsg: "false"
 

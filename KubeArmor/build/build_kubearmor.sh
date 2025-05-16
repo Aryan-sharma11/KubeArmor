@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2021 Authors of KubeArmor
 
-[[ "$REPO" == "" ]] && REPO="kubearmor/kubearmor"
+[[ "$REPO" == "" ]] && REPO="aryan1126/kubearmor"
 
-UBIREPO="kubearmor/kubearmor-ubi"
+UBIREPO="aryan1126/kubearmor-ubi"
 
 realpath() {
     CURR=$PWD
@@ -46,7 +46,7 @@ unset LABEL
 
 # set the $IS_COVERAGE env var to 'true' to build the kubearmor-test image for coverage calculation
 if [[ "$IS_COVERAGE" == "true" ]]; then
-    REPO="kubearmor/kubearmor-test"
+    REPO="aryan1126/kubearmor-test"
     
     # build a kubearmor-test image
     DTAG="-t $REPO:$VERSION"

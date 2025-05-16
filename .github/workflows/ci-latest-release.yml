@@ -1,6 +1,12 @@
 name: ci-latest-release
 
 on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag which has to be updated"
+        type: "string"
+        required: true
   push:
     branches:
       - "main"
@@ -22,7 +28,7 @@ permissions: read-all
 jobs:
   check:
     name: Check what pkg were updated
-    if: github.repository == 'kubearmor/kubearmor'
+    if: github.repository == 'Aryan-sharma11/kubearmor'
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     outputs:
@@ -43,8 +49,8 @@ jobs:
   build:
     name: Create KubeArmor latest release
     needs: check
-    if: github.repository == 'kubearmor/kubearmor' && (needs.check.outputs.kubearmor == 'true' || ${{ github.ref }} != 'refs/heads/main')
-    runs-on: ubuntu-latest-16-cores
+    if: github.repository == 'Aryan-sharma11/kubearmor' && (needs.check.outputs.kubearmor == 'true' || ${{ github.ref }} != 'refs/heads/main')
+    runs-on: ubuntu-22.04
     permissions:
       id-token: write
     timeout-minutes: 150
@@ -67,10 +73,29 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const ref = context.ref;
-            const tag = ref === "refs/heads/main" ? "latest" : ref.replace(/^refs\/[^/]+\//, "");
-            core.setOutput("tag", tag);
-      
+            const core = require('@actions/core');
+            const exec = require('@actions/exec');
+            const github = require('@actions/github');
+
+            // Show current tags
+            await exec.exec('git', ['tag']);
+            // Fetch tags from remote
+            await exec.exec('git', ['fetch', '--tags']);
+            let tag;
+            if (github.context.eventName === 'workflow_dispatch') {
+            tag = core.getInput('tag');
+            core.info(`Checking out tag: ${tag}`);
+            await exec.exec('git', ['checkout', tag]);
+            } else {
+            const ref = github.context.ref;
+            if (ref === 'refs/heads/main') {
+            tag = 'latest';
+            } else {
+            // Extract branch or tag name
+            tag = ref.replace(/^refs\/[^/]+\//, '');
+            }
+            }
+            core.setOutput('tag', tag);
       - name: Login to Docker Hub
         uses: docker/login-action@v2
         with:
