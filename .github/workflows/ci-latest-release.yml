@@ -73,10 +73,6 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const core = require('@actions/core');
-            const exec = require('@actions/exec');
-            const github = require('@actions/github');
-
             // Show current tags
             await exec.exec('git', ['tag']);
             // Fetch tags from remote
