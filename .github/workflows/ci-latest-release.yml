@@ -81,7 +81,7 @@ jobs:
             await exec.exec('git', ['fetch', '--tags']);
             let tag;
             if (context.eventName === 'workflow_dispatch') {
-            tag = core.getInput('tag');
+            tag = context.payload.inputs.tag;
             core.info(`Checking out tag: ${tag}`);
             await exec.exec('git', ['checkout', tag]);
             } else {
