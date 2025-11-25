@@ -83,6 +83,7 @@ type protectprocMapSpecs struct {
 	BufsOff                     *ebpf.MapSpec `ebpf:"bufs_off"`
 	Events                      *ebpf.MapSpec `ebpf:"events"`
 	KubearmorAlertThrottle      *ebpf.MapSpec `ebpf:"kubearmor_alert_throttle"`
+	KubearmorArguments          *ebpf.MapSpec `ebpf:"kubearmor_arguments"`
 	KubearmorConfig             *ebpf.MapSpec `ebpf:"kubearmor_config"`
 	KubearmorContainers         *ebpf.MapSpec `ebpf:"kubearmor_containers"`
 	KubearmorEvents             *ebpf.MapSpec `ebpf:"kubearmor_events"`
@@ -123,6 +124,7 @@ type protectprocMaps struct {
 	BufsOff                     *ebpf.Map `ebpf:"bufs_off"`
 	Events                      *ebpf.Map `ebpf:"events"`
 	KubearmorAlertThrottle      *ebpf.Map `ebpf:"kubearmor_alert_throttle"`
+	KubearmorArguments          *ebpf.Map `ebpf:"kubearmor_arguments"`
 	KubearmorConfig             *ebpf.Map `ebpf:"kubearmor_config"`
 	KubearmorContainers         *ebpf.Map `ebpf:"kubearmor_containers"`
 	KubearmorEvents             *ebpf.Map `ebpf:"kubearmor_events"`
@@ -138,6 +140,7 @@ func (m *protectprocMaps) Close() error {
 		m.BufsOff,
 		m.Events,
 		m.KubearmorAlertThrottle,
+		m.KubearmorArguments,
 		m.KubearmorConfig,
 		m.KubearmorContainers,
 		m.KubearmorEvents,

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -49,6 +50,10 @@ type BPFEnforcer struct {
 	// ContainerID -> NsKey + rules
 	ContainerMap     map[string]ContainerKV
 	ContainerMapLock *sync.RWMutex
+
+	// Argument Matching
+	ArgumentsInnerMapSpec *ebpf.MapSpec
+	BPFArgumentsMap       *ebpf.Map
 
 	obj     enforcerObjects
 	objPath enforcer_pathObjects
@@ -112,6 +117,12 @@ func NewBPFEnforcer(node tp.Node, pinpath string, logger *fd.Feeder, monitor *mo
 	})
 	if err != nil {
 		be.Logger.Errf("error creating kubearmor_alert_throttle map: %s", err)
+		return be, err
+	}
+	// setup arguments matching maps
+	err = be.SetUpArgumentMatching(pinpath)
+	if err != nil {
+		fmt.Println("Error inn Argument matching setup:", err)
 		return be, err
 	}
 
@@ -350,7 +361,7 @@ func (be *BPFEnforcer) TraceEvents() {
 
 				HostPID:  event.HostPID,
 				HostPPID: event.HostPPID,
-				TTY: event.TTY,
+				TTY:      event.TTY,
 			},
 		}, readLink)
 
@@ -446,6 +457,33 @@ func (be *BPFEnforcer) UpdateHostSecurityPolicies(secPolicies []tp.HostSecurityP
 	be.Logger.Print("Updating host rules")
 	be.UpdateHostRules(secPolicies)
 
+}
+func (be *BPFEnforcer) SetUpArgumentMatching(pinpath string) error {
+	var err error
+	be.ArgumentsInnerMapSpec = &ebpf.MapSpec{
+		Type:       ebpf.Hash,
+		KeySize:    512,
+		ValueSize:  2,
+		MaxEntries: 30, // Limiting to 30 entries for argument matching per container as it would contain fromsource rule + without fromsource rule
+	}
+
+	be.BPFArgumentsMap, err = ebpf.NewMapWithOptions(&ebpf.MapSpec{
+		Type:       ebpf.HashOfMaps,
+		KeySize:    264,
+		ValueSize:  4,
+		MaxEntries: 500, // 500 Arguments per node
+		Pinning:    ebpf.PinByName,
+		InnerMap:   be.ArgumentsInnerMapSpec,
+		Name:       "kubearmor_arguments",
+	}, ebpf.MapOptions{
+		PinPath: pinpath,
+	})
+	if err != nil {
+		be.Logger.Errf("error creating kubearmor_containers map: %s", err)
+		return err
+	}
+	be.Logger.Print("Successfully set up argument matching maps")
+	return nil
 }
 
 // DestroyBPFEnforcer cleans up the objects for BPF LSM Enforcer

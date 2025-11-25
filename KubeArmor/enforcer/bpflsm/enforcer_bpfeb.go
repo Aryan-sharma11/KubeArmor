@@ -83,6 +83,7 @@ type enforcerMapSpecs struct {
 	Bufs                   *ebpf.MapSpec `ebpf:"bufs"`
 	BufsOff                *ebpf.MapSpec `ebpf:"bufs_off"`
 	KubearmorAlertThrottle *ebpf.MapSpec `ebpf:"kubearmor_alert_throttle"`
+	KubearmorArguments     *ebpf.MapSpec `ebpf:"kubearmor_arguments"`
 	KubearmorConfig        *ebpf.MapSpec `ebpf:"kubearmor_config"`
 	KubearmorContainers    *ebpf.MapSpec `ebpf:"kubearmor_containers"`
 	KubearmorEvents        *ebpf.MapSpec `ebpf:"kubearmor_events"`
@@ -119,6 +120,7 @@ type enforcerMaps struct {
 	Bufs                   *ebpf.Map `ebpf:"bufs"`
 	BufsOff                *ebpf.Map `ebpf:"bufs_off"`
 	KubearmorAlertThrottle *ebpf.Map `ebpf:"kubearmor_alert_throttle"`
+	KubearmorArguments     *ebpf.Map `ebpf:"kubearmor_arguments"`
 	KubearmorConfig        *ebpf.Map `ebpf:"kubearmor_config"`
 	KubearmorContainers    *ebpf.Map `ebpf:"kubearmor_containers"`
 	KubearmorEvents        *ebpf.Map `ebpf:"kubearmor_events"`
@@ -131,6 +133,7 @@ func (m *enforcerMaps) Close() error {
 		m.Bufs,
 		m.BufsOff,
 		m.KubearmorAlertThrottle,
+		m.KubearmorArguments,
 		m.KubearmorConfig,
 		m.KubearmorContainers,
 		m.KubearmorEvents,

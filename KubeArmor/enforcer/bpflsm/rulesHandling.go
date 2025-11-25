@@ -87,6 +87,8 @@ type RuleList struct {
 	FileWhiteListPosture bool
 	NetWhiteListPosture  bool
 	CapWhiteListPosture  bool
+
+	ArgumentsList map[ArgListKey][]string
 }
 
 // Init prepares the RuleList object
@@ -102,6 +104,8 @@ func (r *RuleList) Init() {
 
 	r.CapabilitiesRuleList = make(map[InnerKey][2]uint8)
 	r.CapWhiteListPosture = false
+
+	r.ArgumentsList = make(map[ArgListKey][]string)
 }
 
 // UpdateContainerRules updates individual container map with new rules and resolves conflicting rules
@@ -114,14 +118,15 @@ func (be *BPFEnforcer) UpdateContainerRules(id string, securityPolicies []tp.Sec
 	// Generate Fresh Rule Set based on Updated Security Policies
 	for _, secPolicy := range securityPolicies {
 		for _, path := range secPolicy.Spec.Process.MatchPaths {
-
 			var val [2]uint8
+
 			val[PROCESS] = val[PROCESS] | EXEC
 			if path.OwnerOnly {
 				val[PROCESS] = val[PROCESS] | OWNER
 			}
 			if len(path.FromSource) == 0 {
 				var key InnerKey
+
 				if len(path.ExecName) > 0 {
 					copy(key.Path[:], []byte(path.ExecName))
 				} else {
@@ -133,6 +138,10 @@ func (be *BPFEnforcer) UpdateContainerRules(id string, securityPolicies []tp.Sec
 				} else if path.Action == "Block" {
 					val[PROCESS] = val[PROCESS] | DENY
 					newrules.ProcessRuleList[key] = val
+				}
+				if len(path.AllowedArgs) > 0 {
+					argList, argKey := be.handleArgumentList(id, path.AllowedArgs, key)
+					newrules.ArgumentsList[argKey] = argList
 				}
 			} else {
 				for _, src := range path.FromSource {
@@ -150,8 +159,20 @@ func (be *BPFEnforcer) UpdateContainerRules(id string, securityPolicies []tp.Sec
 						val[PROCESS] = val[PROCESS] | DENY
 						newrules.ProcessRuleList[key] = val
 					}
+					if len(path.AllowedArgs) > 0 {
+						argList, argKey := be.handleArgumentList(id, path.AllowedArgs, key)
+						newrules.ArgumentsList[argKey] = argList
+					}
 				}
 			}
+			// if len(path.AllowedArgs) > 0 {
+			// 	var argList []string
+			// 	argKey.InnerKey = key
+			// 	argKey.MntNS = be.ContainerMap[id].Key.MntNS
+			// 	argKey.PidNS = be.ContainerMap[id].Key.PidNS
+			// 	argList = append(argList, path.AllowedArgs...)
+			// 	newrules.ArgumentsList[argKey] = argList
+			// }
 		}
 
 		for _, dir := range secPolicy.Spec.Process.MatchDirectories {
@@ -540,4 +561,13 @@ func dirtoMap(idx int, p, src string, m map[InnerKey][2]uint8, val [2]uint8) {
 		}
 		m[key] = val
 	}
+}
+func (be *BPFEnforcer) handleArgumentList(id string, allowedArgs []string, key InnerKey) ([]string, ArgListKey) {
+	var argKey ArgListKey
+	var argList []string
+	argKey.InnerKey = key
+	argKey.MntNS = be.ContainerMap[id].Key.MntNS
+	argKey.PidNS = be.ContainerMap[id].Key.PidNS
+	argList = append(argList, allowedArgs...)
+	return argList, argKey
 }

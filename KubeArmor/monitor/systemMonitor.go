@@ -510,6 +510,7 @@ func (mon *SystemMonitor) UpdateVisibility() {
 func (mon *SystemMonitor) InitBPF() error {
 	homeDir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
+		fmt.Println("xyz)")
 		return err
 	}
 

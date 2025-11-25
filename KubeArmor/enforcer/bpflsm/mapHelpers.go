@@ -29,6 +29,21 @@ type InnerKey struct {
 	Source [256]byte
 }
 
+// Arguments matching helpers
+type ArgumentInnerKey struct {
+	Source [256]byte
+	Arg    [256]byte
+}
+type ArgumentOuterKey struct {
+	NsKey
+	Path [256]byte
+}
+
+type ArgListKey struct {
+	NsKey
+	InnerKey
+}
+
 // AddContainerIDToMap adds container metadata to Outer eBPF container Map for initialising enforcement tracking and initiates an InnerMap to store the container specific rules
 func (be *BPFEnforcer) AddContainerIDToMap(containerID string, pidns, mntns uint32) {
 	key := NsKey{PidNS: pidns, MntNS: mntns}

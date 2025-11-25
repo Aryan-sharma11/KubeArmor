@@ -79,6 +79,7 @@ type anonmapexecMapSpecs struct {
 	Events                               *ebpf.MapSpec `ebpf:"events"`
 	KubearmorAlertThrottle               *ebpf.MapSpec `ebpf:"kubearmor_alert_throttle"`
 	KubearmorAnonMapExecPresetContainers *ebpf.MapSpec `ebpf:"kubearmor_anon_map_exec_preset_containers"`
+	KubearmorArguments                   *ebpf.MapSpec `ebpf:"kubearmor_arguments"`
 	KubearmorConfig                      *ebpf.MapSpec `ebpf:"kubearmor_config"`
 	KubearmorContainers                  *ebpf.MapSpec `ebpf:"kubearmor_containers"`
 	KubearmorEvents                      *ebpf.MapSpec `ebpf:"kubearmor_events"`
@@ -118,6 +119,7 @@ type anonmapexecMaps struct {
 	Events                               *ebpf.Map `ebpf:"events"`
 	KubearmorAlertThrottle               *ebpf.Map `ebpf:"kubearmor_alert_throttle"`
 	KubearmorAnonMapExecPresetContainers *ebpf.Map `ebpf:"kubearmor_anon_map_exec_preset_containers"`
+	KubearmorArguments                   *ebpf.Map `ebpf:"kubearmor_arguments"`
 	KubearmorConfig                      *ebpf.Map `ebpf:"kubearmor_config"`
 	KubearmorContainers                  *ebpf.Map `ebpf:"kubearmor_containers"`
 	KubearmorEvents                      *ebpf.Map `ebpf:"kubearmor_events"`
@@ -132,6 +134,7 @@ func (m *anonmapexecMaps) Close() error {
 		m.Events,
 		m.KubearmorAlertThrottle,
 		m.KubearmorAnonMapExecPresetContainers,
+		m.KubearmorArguments,
 		m.KubearmorConfig,
 		m.KubearmorContainers,
 		m.KubearmorEvents,
