@@ -70,10 +70,22 @@ spec:
                       - Audit
                       - Block
                       type: string
+                    duration:
+                      description: Duration defines how often (in minutes) the quota
+                        counter is reset. Only effective when limit is also set.
+                      format: int32
+                      minimum: 1
+                      type: integer
                     iface:
                       items:
                         type: string
                       type: array
+                    limit:
+                      description: Limit defines the outbound bandwidth quota. Accepts
+                        a value with unit suffix e.g. "500MB", "2GB", "1024KB".
+                        Defaults to GB if no unit is given.
+                      pattern: ^[0-9]+(KB|MB|GB|K|M|G)?$
+                      type: string
                     message:
                       type: string
                     ports:
@@ -134,6 +146,12 @@ spec:
                       - Audit
                       - Block
                       type: string
+                    duration:
+                      description: Duration defines how often (in minutes) the quota
+                        counter is reset. Only effective when limit is also set.
+                      format: int32
+                      minimum: 1
+                      type: integer
                     from:
                       items:
                         description: NetworkPeer Structure
@@ -154,6 +172,12 @@ spec:
                       items:
                         type: string
                       type: array
+                    limit:
+                      description: Limit defines the inbound bandwidth quota. Accepts
+                        a value with unit suffix e.g. "500MB", "2GB", "1024KB".
+                        Defaults to GB if no unit is given.
+                      pattern: ^[0-9]+(KB|MB|GB|K|M|G)?$
+                      type: string
                     message:
                       type: string
                     ports:
@@ -197,6 +221,16 @@ spec:
                       type: string
                     type: object
                 type: object
+              selector:
+                description: Selector targets specific pods by label. When set, policies
+                  are enforced via the FORWARD chain scoped to the resolved pod IPs.
+                  When omitted, policies apply to the host (INPUT/OUTPUT chains).
+                properties:
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    type: object
+                type: object
               severity:
                 maximum: 10
                 minimum: 1
@@ -205,8 +239,11 @@ spec:
                 items:
                   type: string
                 type: array
-            required:
-            - nodeSelector
+            oneOf:
+              - required:
+                - nodeSelector
+              - required:
+                - selector
             type: object
           status:
             description: KubeArmorNetworkPolicyStatus defines the observed state of
