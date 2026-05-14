@@ -743,7 +743,7 @@ type IngressType struct {
 	Ports     []PortType    `json:"ports,omitempty"`
 
 	Limit    string `json:"limit,omitempty"`
-	Duration uint32 `json:"duration,omitempty"`
+	Duration string `json:"duration,omitempty"`
 
 	Severity int      `json:"severity,omitempty"`
 	Tags     []string `json:"tags,omitempty"`
@@ -758,7 +758,7 @@ type EgressType struct {
 	Ports     []PortType    `json:"ports,omitempty"`
 
 	Limit    string `json:"limit,omitempty"`
-	Duration uint32 `json:"duration,omitempty"`
+	Duration string `json:"duration,omitempty"`
 
 	Severity int      `json:"severity,omitempty"`
 	Tags     []string `json:"tags,omitempty"`

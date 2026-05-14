@@ -470,13 +470,13 @@ type IngressType struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:validation:Pattern=`^[0-9]+(KB|MB|GB|K|M|G)?$`
 	// Limit defines the inbound bandwidth quota. Accepts a value with unit suffix:
-	// e.g. "500MB", "2GB", "1024KB". Defaults to GB if no unit is given.
+	// e.g. "500MB", "2GB", "1024KB".
 	Limit string `json:"limit,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:validation:Minimum=1
-	// Duration defines how often (in minutes) the quota counter is reset.
-	Duration uint32 `json:"duration,omitempty"`
+	// Duration defines how often the quota counter is reset.
+	// Accepts formats like "2h", "30m", "45s".
+	Duration string `json:"duration,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	Severity int `json:"severity,omitempty"`
@@ -504,9 +504,9 @@ type EgressType struct {
 	Limit string `json:"limit,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:validation:Minimum=1
-	// Duration defines how often (in minutes) the quota counter is reset.
-	Duration uint32 `json:"duration,omitempty"`
+	// Duration defines how often the quota counter is reset.
+	// Accepts formats like "2h", "30m", "45s".
+	Duration string `json:"duration,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	Severity int `json:"severity,omitempty"`

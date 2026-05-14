@@ -373,16 +373,21 @@ func (ne *NetworkPolicyEnforcer) UpdateNetworkSecurityPolicies(secPolicies []tp.
 			rules := generateRules("Ingress", ingress.From, ingress.Ports, ingress.Interface, action, policyName, ingress.Limit, ingress.Duration, idx, &allQuotas, podIPs, isPodPolicy)
 			newRules = append(newRules, rules...)
 
-			if ingress.Limit != "" && ingress.Duration > 0 {
-				parsed, err := parseLimitToNFT(ingress.Limit)
+			if ingress.Limit != "" && ingress.Duration != "" {
+				parsedLimit, err := parseLimitToNFT(ingress.Limit)
 				if err != nil {
 					ne.Logger.Errf("Policy %s ingress[%d] has invalid limit %q: %v", policyName, idx, ingress.Limit, err)
 				} else {
-					_ = parsed // quota already registered inside generateRules
-					quotaName := fmt.Sprintf("quota_%s_Ingress_%d", policyName, idx)
-					quotaName = strings.ReplaceAll(quotaName, "-", "_")
-					quotaName = strings.ReplaceAll(quotaName, " ", "_")
-					ne.setupQuotaTimer(quotaName, ingress.Duration)
+					parsedDuration, err := parseDurationToSeconds(ingress.Duration)
+					if err != nil {
+						ne.Logger.Errf("Policy %s ingress[%d] has invalid duration %q: %v", policyName, idx, ingress.Duration, err)
+					} else if parsedDuration > 0 {
+						_ = parsedLimit // quota already registered inside generateRules
+						quotaName := fmt.Sprintf("quota_%s_Ingress_%d", policyName, idx)
+						quotaName = strings.ReplaceAll(quotaName, "-", "_")
+						quotaName = strings.ReplaceAll(quotaName, " ", "_")
+						ne.setupQuotaTimer(quotaName, parsedDuration)
+					}
 				}
 			}
 		}
@@ -399,16 +404,21 @@ func (ne *NetworkPolicyEnforcer) UpdateNetworkSecurityPolicies(secPolicies []tp.
 			rules := generateRules("Egress", egress.To, egress.Ports, egress.Interface, action, policyName, egress.Limit, egress.Duration, idx, &allQuotas, podIPs, isPodPolicy)
 			newRules = append(newRules, rules...)
 
-			if egress.Limit != "" && egress.Duration > 0 {
-				parsed, err := parseLimitToNFT(egress.Limit)
+			if egress.Limit != "" && egress.Duration != "" {
+				parsedLimit, err := parseLimitToNFT(egress.Limit)
 				if err != nil {
 					ne.Logger.Errf("Policy %s egress[%d] has invalid limit %q: %v", policyName, idx, egress.Limit, err)
 				} else {
-					_ = parsed // quota already registered inside generateRules
-					quotaName := fmt.Sprintf("quota_%s_Egress_%d", policyName, idx)
-					quotaName = strings.ReplaceAll(quotaName, "-", "_")
-					quotaName = strings.ReplaceAll(quotaName, " ", "_")
-					ne.setupQuotaTimer(quotaName, egress.Duration)
+					parsedDuration, err := parseDurationToSeconds(egress.Duration)
+					if err != nil {
+						ne.Logger.Errf("Policy %s egress[%d] has invalid duration %q: %v", policyName, idx, egress.Duration, err)
+					} else if parsedDuration > 0 {
+						_ = parsedLimit // quota already registered inside generateRules
+						quotaName := fmt.Sprintf("quota_%s_Egress_%d", policyName, idx)
+						quotaName = strings.ReplaceAll(quotaName, "-", "_")
+						quotaName = strings.ReplaceAll(quotaName, " ", "_")
+						ne.setupQuotaTimer(quotaName, parsedDuration)
+					}
 				}
 			}
 		}
@@ -494,7 +504,18 @@ func parseLimitToNFT(limit string) (string, error) {
 	return fmt.Sprintf("%d bytes", bytes), nil
 }
 
-func generateRules(direction string, peers []tp.NetworkPeer, ports []tp.PortType, ifaces []string, action, policyName string, limit string, duration uint32, ruleIdx int, quotas *[]QuotaObj, podIPs []string, isPodPolicy bool) []NetworkRule {
+func parseDurationToSeconds(d string) (uint32, error) {
+	if d == "" {
+		return 0, nil
+	}
+	parsed, err := time.ParseDuration(d)
+	if err != nil {
+		return 0, err
+	}
+	return uint32(parsed.Seconds()), nil
+}
+
+func generateRules(direction string, peers []tp.NetworkPeer, ports []tp.PortType, ifaces []string, action, policyName string, limit string, duration string, ruleIdx int, quotas *[]QuotaObj, podIPs []string, isPodPolicy bool) []NetworkRule {
 	var rules []NetworkRule
 
 	if isPodPolicy && len(podIPs) == 0 {
@@ -502,13 +523,16 @@ func generateRules(direction string, peers []tp.NetworkPeer, ports []tp.PortType
 	}
 
 	quotaName := ""
-	if limit != "" && duration > 0 {
-		parsed, err := parseLimitToNFT(limit)
-		if err == nil {
-			quotaName = fmt.Sprintf("quota_%s_%s_%d", policyName, direction, ruleIdx)
-			quotaName = strings.ReplaceAll(quotaName, "-", "_")
-			quotaName = strings.ReplaceAll(quotaName, " ", "_")
-			*quotas = append(*quotas, QuotaObj{Name: quotaName, Limit: parsed})
+	if limit != "" && duration != "" {
+		parsedDuration, _ := parseDurationToSeconds(duration)
+		if parsedDuration > 0 {
+			parsed, err := parseLimitToNFT(limit)
+			if err == nil {
+				quotaName = fmt.Sprintf("quota_%s_%s_%d", policyName, direction, ruleIdx)
+				quotaName = strings.ReplaceAll(quotaName, "-", "_")
+				quotaName = strings.ReplaceAll(quotaName, " ", "_")
+				*quotas = append(*quotas, QuotaObj{Name: quotaName, Limit: parsed})
+			}
 		}
 	}
 
@@ -975,8 +999,8 @@ table inet kubearmor {
 	return nil
 }
 
-func (ne *NetworkPolicyEnforcer) setupQuotaTimer(quotaName string, durationMinutes uint32) {
-	if durationMinutes == 0 {
+func (ne *NetworkPolicyEnforcer) setupQuotaTimer(quotaName string, durationSeconds uint32) {
+	if durationSeconds == 0 {
 		return
 	}
 
@@ -986,7 +1010,7 @@ func (ne *NetworkPolicyEnforcer) setupQuotaTimer(quotaName string, durationMinut
 	ctx, cancel := context.WithCancel(context.Background())
 	ne.QuotaCancel[quotaName] = cancel
 
-	ticker := time.NewTicker(time.Duration(durationMinutes) * time.Minute)
+	ticker := time.NewTicker(time.Duration(durationSeconds) * time.Second)
 	ne.QuotaTimers[quotaName] = ticker
 
 	go func() {
