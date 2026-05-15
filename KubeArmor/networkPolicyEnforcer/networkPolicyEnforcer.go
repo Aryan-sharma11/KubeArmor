@@ -76,6 +76,11 @@ type NetworkPolicyEnforcer struct {
 	ActiveRules  []NetworkRule
 	ActiveQuotas []QuotaObj
 	Initialized  bool
+
+	// Quota Log Silencer
+	// Key: "<podIP>-<logPrefix>", Value: struct{}{}
+	// Prevents repeated alerts within the same quota window.
+	QuotaSilencer sync.Map
 }
 
 // NewNetworkPolicyEnforcer Function
@@ -264,15 +269,43 @@ func (ne *NetworkPolicyEnforcer) monitorLoggedPackets() {
 			}
 		}
 
-		// Rate Limiting (10 Seconds)
-		flowKey := fmt.Sprintf("%s:%d->%s:%d/%d-%s", srcIP, srcPort, dstIP, dstPort, protocol, prefix)
-		if lastSeen, loaded := ne.LogCache.Load(flowKey); loaded {
-			if time.Since(lastSeen.(time.Time)) < 10*time.Second {
-				return 0 // SKIP LOGGING
-			}
+		// Extract targetIP early — needed for both silencing and metadata
+		parts := strings.Split(prefix, " ")
+		var targetIP, direction string
+		if len(parts) > 1 {
+			direction = parts[1]
+		}
+		if direction == "Egress" || direction == "OUTPUT" {
+			targetIP = srcIP
+		} else if direction == "Ingress" || direction == "INPUT" {
+			targetIP = dstIP
 		}
 
-		ne.LogCache.Store(flowKey, time.Now())
+		// Quota Log Silencer:
+		// For policy drops, emit ONE alert per quota window per pod+policy.
+		// The key is stable (podIP + prefix), ignoring ephemeral ports.
+		policyName := ""
+		if len(parts) > 0 {
+			policyName = parts[0]
+		}
+		isNamedPolicy := policyName != "" && policyName != "Default" && policyName != "Host"
+
+		if isNamedPolicy {
+			silencerKey := fmt.Sprintf("%s-%s", targetIP, prefix)
+			if _, silenced := ne.QuotaSilencer.Load(silencerKey); silenced {
+				return 0 // Already alerted for this quota window — drop silently
+			}
+			ne.QuotaSilencer.Store(silencerKey, struct{}{})
+		} else {
+			// For host/default rules, keep the 10-second flow rate limiter
+			flowKey := fmt.Sprintf("%s:%d->%s:%d/%d-%s", srcIP, srcPort, dstIP, dstPort, protocol, prefix)
+			if lastSeen, loaded := ne.LogCache.Load(flowKey); loaded {
+				if time.Since(lastSeen.(time.Time)) < 10*time.Second {
+					return 0
+				}
+			}
+			ne.LogCache.Store(flowKey, time.Now())
+		}
 
 		// Generate KubeArmor Log
 		log := tp.Log{}
@@ -284,17 +317,11 @@ func (ne *NetworkPolicyEnforcer) monitorLoggedPackets() {
 		log.Resource = prefix
 		log.Data = fmt.Sprintf("SourceIP=%s SourcePort=%d DestinationIP=%s DestinationPort=%d Protocol=%s", srcIP, srcPort, dstIP, dstPort, getProtocolName(protocol))
 
-		parts := strings.Split(prefix, " ")
-		action := "Audit" // default fallback
+		action := "Audit"
 		if len(parts) > 2 {
 			action = parts[2]
 		} else if strings.Contains(prefix, "Block") {
 			action = "Block"
-		}
-
-		policyName := ""
-		if len(parts) > 0 {
-			policyName = parts[0]
 		}
 
 		log.Action = action
@@ -306,7 +333,7 @@ func (ne *NetworkPolicyEnforcer) monitorLoggedPackets() {
 
 		log.Enforcer = "NetworkPolicyEnforcer"
 
-		if policyName != "" && policyName != "Default" && policyName != "Host" {
+		if isNamedPolicy {
 			log.Type = "MatchedPolicy"
 			log.PolicyName = policyName
 		} else if policyName == "Host" {
@@ -315,20 +342,7 @@ func (ne *NetworkPolicyEnforcer) monitorLoggedPackets() {
 			log.Type = "SystemLog"
 		}
 
-		// Try to attach Kubernetes Pod metadata
-		targetIP := ""
-		direction := ""
-
-		if len(parts) > 1 {
-			direction = parts[1]
-		}
-
-		if direction == "Egress" || direction == "OUTPUT" {
-			targetIP = srcIP
-		} else if direction == "Ingress" || direction == "INPUT" {
-			targetIP = dstIP
-		}
-
+		// Attach Kubernetes Pod metadata
 		if targetIP != "" {
 			ne.EndPointsLock.RLock()
 			if ep, ok := ne.EndPoints[targetIP]; ok {
@@ -339,7 +353,6 @@ func (ne *NetworkPolicyEnforcer) monitorLoggedPackets() {
 				for k, v := range ep.Labels {
 					labelSlice = append(labelSlice, k+"="+v)
 				}
-				// Sort labels for consistent output
 				sort.Strings(labelSlice)
 				log.Labels = strings.Join(labelSlice, ",")
 			}
@@ -1281,8 +1294,15 @@ func (ne *NetworkPolicyEnforcer) setupQuotaTimer(quotaName string, durationSecon
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				// Reset the single inet quota — covers both IPv4 and IPv6 traffic
+				// Reset the kernel quota counter
 				exec.Command("nft", "reset", "quota", "inet", "kubearmor", quotaName).Run() // #nosec G204
+				// Re-arm the log silencer so the user gets alerted on the NEXT breach
+				ne.QuotaSilencer.Range(func(key, _ any) bool {
+					if strings.Contains(key.(string), quotaName) {
+						ne.QuotaSilencer.Delete(key)
+					}
+					return true
+				})
 			}
 		}
 	}()
