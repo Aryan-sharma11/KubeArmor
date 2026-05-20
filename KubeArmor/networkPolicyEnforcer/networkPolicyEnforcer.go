@@ -469,17 +469,11 @@ func (ne *NetworkPolicyEnforcer) UpdateNetworkSecurityPolicies(secPolicies []tp.
 						_ = parsedLimit // quota already registered inside generateRules
 						if isPodPolicy && len(podIPs) > 0 {
 							for _, ip := range podIPs {
-								quotaName := fmt.Sprintf("quota_%s_Ingress_%d_%s", policyName, idx, ip)
-								quotaName = strings.ReplaceAll(quotaName, "-", "_")
-								quotaName = strings.ReplaceAll(quotaName, " ", "_")
-								quotaName = strings.ReplaceAll(quotaName, ".", "_")
-								quotaName = strings.ReplaceAll(quotaName, ":", "_")
+								quotaName := sanitizeQuotaName(fmt.Sprintf("quota_%s_Ingress_%d_%s", policyName, idx, ip))
 								ne.setupQuotaTimer(quotaName, parsedDuration)
 							}
 						} else {
-							quotaName := fmt.Sprintf("quota_%s_Ingress_%d", policyName, idx)
-							quotaName = strings.ReplaceAll(quotaName, "-", "_")
-							quotaName = strings.ReplaceAll(quotaName, " ", "_")
+							quotaName := sanitizeQuotaName(fmt.Sprintf("quota_%s_Ingress_%d", policyName, idx))
 							ne.setupQuotaTimer(quotaName, parsedDuration)
 						}
 					}
@@ -511,17 +505,11 @@ func (ne *NetworkPolicyEnforcer) UpdateNetworkSecurityPolicies(secPolicies []tp.
 						_ = parsedLimit // quota already registered inside generateRules
 						if isPodPolicy && len(podIPs) > 0 {
 							for _, ip := range podIPs {
-								quotaName := fmt.Sprintf("quota_%s_Egress_%d_%s", policyName, idx, ip)
-								quotaName = strings.ReplaceAll(quotaName, "-", "_")
-								quotaName = strings.ReplaceAll(quotaName, " ", "_")
-								quotaName = strings.ReplaceAll(quotaName, ".", "_")
-								quotaName = strings.ReplaceAll(quotaName, ":", "_")
+								quotaName := sanitizeQuotaName(fmt.Sprintf("quota_%s_Egress_%d_%s", policyName, idx, ip))
 								ne.setupQuotaTimer(quotaName, parsedDuration)
 							}
 						} else {
-							quotaName := fmt.Sprintf("quota_%s_Egress_%d", policyName, idx)
-							quotaName = strings.ReplaceAll(quotaName, "-", "_")
-							quotaName = strings.ReplaceAll(quotaName, " ", "_")
+							quotaName := sanitizeQuotaName(fmt.Sprintf("quota_%s_Egress_%d", policyName, idx))
 							ne.setupQuotaTimer(quotaName, parsedDuration)
 						}
 					}
@@ -619,6 +607,13 @@ func parseDurationToSeconds(d string) (uint32, error) {
 		return 0, err
 	}
 	return uint32(parsed.Seconds()), nil
+}
+
+// sanitizeQuotaName replaces characters that are invalid in nftables quota
+// object names (hyphens, spaces, dots, colons) with underscores.
+func sanitizeQuotaName(name string) string {
+	r := strings.NewReplacer("-", "_", " ", "_", ".", "_", ":", "_")
+	return r.Replace(name)
 }
 
 func generateRules(direction string, peers []tp.NetworkPeer, ports []tp.PortType, ifaces []string, action, policyName string, limit string, duration string, ruleIdx int, quotas *[]QuotaObj, podIPs []string, isPodPolicy bool) []NetworkRule {
@@ -781,11 +776,7 @@ func generateRules(direction string, peers []tp.NetworkPeer, ports []tp.PortType
 			if hasQuota {
 				if isPodPolicy && len(pods) > 0 {
 					for _, pod := range pods {
-						quotaName := fmt.Sprintf("quota_%s_%s_%d_%s", policyName, direction, ruleIdx, pod)
-						quotaName = strings.ReplaceAll(quotaName, "-", "_")
-						quotaName = strings.ReplaceAll(quotaName, " ", "_")
-						quotaName = strings.ReplaceAll(quotaName, ".", "_")
-						quotaName = strings.ReplaceAll(quotaName, ":", "_")
+						quotaName := sanitizeQuotaName(fmt.Sprintf("quota_%s_%s_%d_%s", policyName, direction, ruleIdx, pod))
 
 						*quotas = append(*quotas, QuotaObj{Name: quotaName, Limit: parsedLimitStr})
 
@@ -839,9 +830,7 @@ func generateRules(direction string, peers []tp.NetworkPeer, ports []tp.PortType
 						}
 					}
 				} else {
-					quotaName := fmt.Sprintf("quota_%s_%s_%d", policyName, direction, ruleIdx)
-					quotaName = strings.ReplaceAll(quotaName, "-", "_")
-					quotaName = strings.ReplaceAll(quotaName, " ", "_")
+					quotaName := sanitizeQuotaName(fmt.Sprintf("quota_%s_%s_%d", policyName, direction, ruleIdx))
 					*quotas = append(*quotas, QuotaObj{Name: quotaName, Limit: parsedLimitStr})
 
 					overParts := append([]string(nil), parts...)
@@ -932,11 +921,7 @@ func generateRules(direction string, peers []tp.NetworkPeer, ports []tp.PortType
 			if hasQuota {
 				if isPodPolicy && len(pods) > 0 {
 					for _, pod := range pods {
-						quotaName := fmt.Sprintf("quota_%s_%s_%d_%s", policyName, direction, ruleIdx, pod)
-						quotaName = strings.ReplaceAll(quotaName, "-", "_")
-						quotaName = strings.ReplaceAll(quotaName, " ", "_")
-						quotaName = strings.ReplaceAll(quotaName, ".", "_")
-						quotaName = strings.ReplaceAll(quotaName, ":", "_")
+						quotaName := sanitizeQuotaName(fmt.Sprintf("quota_%s_%s_%d_%s", policyName, direction, ruleIdx, pod))
 
 						// No need to append to quotas again; it was done in the first branch if it executed,
 						// wait, if we have multiple protoPorts, we might add the same quota multiple times!
@@ -1000,9 +985,7 @@ func generateRules(direction string, peers []tp.NetworkPeer, ports []tp.PortType
 						}
 					}
 				} else {
-					quotaName := fmt.Sprintf("quota_%s_%s_%d", policyName, direction, ruleIdx)
-					quotaName = strings.ReplaceAll(quotaName, "-", "_")
-					quotaName = strings.ReplaceAll(quotaName, " ", "_")
+					quotaName := sanitizeQuotaName(fmt.Sprintf("quota_%s_%s_%d", policyName, direction, ruleIdx))
 					*quotas = append(*quotas, QuotaObj{Name: quotaName, Limit: parsedLimitStr})
 
 					overParts := append([]string(nil), parts...)
