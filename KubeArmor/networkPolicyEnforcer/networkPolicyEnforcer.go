@@ -315,7 +315,25 @@ func (ne *NetworkPolicyEnforcer) monitorLoggedPackets() {
 		log.UpdatedTime = updatedTime
 		log.Operation = "NetworkFirewall"
 		log.Resource = prefix
-		log.Data = fmt.Sprintf("SourceIP=%s SourcePort=%d DestinationIP=%s DestinationPort=%d Protocol=%s", srcIP, srcPort, dstIP, dstPort, getProtocolName(protocol))
+
+		quotaLevel := ""
+		quotaLimit := ""
+		if len(parts) > 3 {
+			quotaLevel = parts[3]
+		}
+		if len(parts) > 4 {
+			quotaLimit = parts[4]
+		}
+
+		if quotaLevel != "" {
+			if quotaLimit != "" {
+				log.Data = fmt.Sprintf("SourceIP=%s SourcePort=%d DestinationIP=%s DestinationPort=%d Protocol=%s QuotaLevel=%s QuotaLimit=%s", srcIP, srcPort, dstIP, dstPort, getProtocolName(protocol), quotaLevel, quotaLimit)
+			} else {
+				log.Data = fmt.Sprintf("SourceIP=%s SourcePort=%d DestinationIP=%s DestinationPort=%d Protocol=%s QuotaLevel=%s", srcIP, srcPort, dstIP, dstPort, getProtocolName(protocol), quotaLevel)
+			}
+		} else {
+			log.Data = fmt.Sprintf("SourceIP=%s SourcePort=%d DestinationIP=%s DestinationPort=%d Protocol=%s", srcIP, srcPort, dstIP, dstPort, getProtocolName(protocol))
+		}
 
 		action := "Audit"
 		if len(parts) > 2 {
@@ -650,6 +668,9 @@ func generateRules(direction string, peers []tp.NetworkPeer, ports []tp.PortType
 	}
 
 	logPrefix := policyName + " " + direction + " " + action + " " + policyLevel
+	if limit != "" {
+		logPrefix = logPrefix + " " + limit
+	}
 
 	// Collect CIDRs
 	var ipv4CIDRs []string
