@@ -1308,7 +1308,7 @@ func (ne *NetworkPolicyEnforcer) setupQuotaTimer(quotaName string, durationSecon
 	ne.QuotasLock.Lock()
 	defer ne.QuotasLock.Unlock()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) // #nosec G118
 	ne.QuotaCancel[quotaName] = cancel
 
 	ticker := time.NewTicker(time.Duration(durationSeconds) * time.Second)
@@ -1321,7 +1321,9 @@ func (ne *NetworkPolicyEnforcer) setupQuotaTimer(quotaName string, durationSecon
 				return
 			case <-ticker.C:
 				// Reset the kernel quota counter
-				exec.Command("nft", "reset", "quota", "inet", "kubearmor", quotaName).Run() // #nosec G204
+				if err := exec.Command("nft", "reset", "quota", "inet", "kubearmor", quotaName).Run(); err != nil { // #nosec G204
+					ne.Logger.Warnf("failed to reset nftables quota %s: %v", quotaName, err)
+				}
 				// Re-arm the log silencer so the user gets alerted on the NEXT breach
 				ne.QuotaSilencer.Range(func(key, _ any) bool {
 					keyStr := key.(string)
