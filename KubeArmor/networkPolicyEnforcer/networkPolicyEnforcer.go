@@ -68,11 +68,10 @@ type NetworkPolicyEnforcer struct {
 	PodIPs      map[string]string
 	QuotasLock  *sync.Mutex
 
-	// Endpoints cache for log contextualization
+	// Endpoints
 	EndPoints     map[string]tp.EndPoint
 	EndPointsLock *sync.RWMutex
 
-	// Delta Engine Cache
 	ActiveRules  []NetworkRule
 	ActiveQuotas []QuotaObj
 	Initialized  bool
@@ -221,10 +220,15 @@ func (ne *NetworkPolicyEnforcer) buildKubeArmorLog(info packetInfo, prefix strin
 	quotaLevel := ""
 	quotaLimit := ""
 	if len(parts) > 3 {
-		quotaLevel = parts[3]
-	}
-	if len(parts) > 4 {
-		quotaLimit = parts[4]
+		val := parts[3]
+		if val == "pod" || val == "policy" {
+			quotaLevel = val
+			if len(parts) > 4 {
+				quotaLimit = parts[4]
+			}
+		} else {
+			quotaLimit = val
+		}
 	}
 
 	if quotaLevel != "" {
@@ -234,7 +238,11 @@ func (ne *NetworkPolicyEnforcer) buildKubeArmorLog(info packetInfo, prefix strin
 			log.Data = fmt.Sprintf("SourceIP=%s SourcePort=%d DestinationIP=%s DestinationPort=%d Protocol=%s QuotaLevel=%s", info.srcIP, info.srcPort, info.dstIP, info.dstPort, getProtocolName(info.protocol), quotaLevel)
 		}
 	} else {
-		log.Data = fmt.Sprintf("SourceIP=%s SourcePort=%d DestinationIP=%s DestinationPort=%d Protocol=%s", info.srcIP, info.srcPort, info.dstIP, info.dstPort, getProtocolName(info.protocol))
+		if quotaLimit != "" {
+			log.Data = fmt.Sprintf("SourceIP=%s SourcePort=%d DestinationIP=%s DestinationPort=%d Protocol=%s QuotaLimit=%s", info.srcIP, info.srcPort, info.dstIP, info.dstPort, getProtocolName(info.protocol), quotaLimit)
+		} else {
+			log.Data = fmt.Sprintf("SourceIP=%s SourcePort=%d DestinationIP=%s DestinationPort=%d Protocol=%s", info.srcIP, info.srcPort, info.dstIP, info.dstPort, getProtocolName(info.protocol))
+		}
 	}
 
 	action := "Audit"
@@ -383,8 +391,7 @@ func (ne *NetworkPolicyEnforcer) monitorLoggedPackets() {
 		}
 
 		// Quota Log Silencer:
-		// For policy drops, emit ONE alert per quota window per pod+policy.
-		// The key is stable (podIP + prefix), ignoring ephemeral ports.
+		// For policy drops, emit ONE alert per quota window.
 		policyName := ""
 		if len(parts) > 0 {
 			policyName = parts[0]
@@ -392,7 +399,19 @@ func (ne *NetworkPolicyEnforcer) monitorLoggedPackets() {
 		isNamedPolicy := policyName != "" && policyName != "Default" && policyName != "Host"
 
 		if isNamedPolicy {
-			silencerKey := fmt.Sprintf("%s-%s", targetIP, logPrefix)
+			quotaLevel := ""
+			if len(parts) > 3 {
+				quotaLevel = parts[3]
+			}
+			isContainer := quotaLevel == "pod" || quotaLevel == "policy"
+
+			var silencerKey string
+			if isContainer {
+				silencerKey = fmt.Sprintf("pod|%s|%s|%s", targetIP, policyName, direction)
+			} else {
+				silencerKey = fmt.Sprintf("host||%s|%s", policyName, direction)
+			}
+
 			if _, silenced := ne.QuotaSilencer.Load(silencerKey); silenced {
 				return 0 // Already alerted for this quota window — drop silently
 			}
@@ -468,6 +487,7 @@ func (ne *NetworkPolicyEnforcer) UpdateNetworkSecurityPolicies(secPolicies []tp.
 	var newRules []NetworkRule
 	var allQuotas []QuotaObj
 	hasAllowPolicy := false
+	matchedPods := make(map[string]bool)
 
 	// generate Rules
 	for _, policy := range secPolicies {
@@ -478,27 +498,27 @@ func (ne *NetworkPolicyEnforcer) UpdateNetworkSecurityPolicies(secPolicies []tp.
 
 		policyName, _ := policy.Metadata["policyName"]
 
+		isPodPolicy := len(policy.Spec.Selector.Identities) > 0
+
 		policyLevel := "pod"
 		if strings.EqualFold(policy.Spec.Level, "policy") {
 			policyLevel = "policy"
 		}
 
 		var podIPs []string
-		isPodPolicy := len(policy.Spec.Selector.Identities) > 0
+
 		if isPodPolicy {
 			// Find matching endpoints and collect their pod IPs
 			for _, ep := range endpoints {
 				matched := kl.MatchIdentities(policy.Spec.Selector.Identities, ep.Identities)
-				fmt.Printf("  Endpoint %s: matched=%v, ep.PodIP=%q\n", ep.EndPointName, matched, ep.PodIP)
 				if matched {
 					if ep.PodIP != "" {
 						podIPs = append(podIPs, ep.PodIP)
 					}
+					matchedPods[ep.EndPointName] = true
 				}
 			}
 		}
-		fmt.Println("Matched Pod IPs for policy", policyName, ":", podIPs)
-
 		// Ingress
 		for idx, ingress := range policy.Spec.Ingress {
 			action := policy.Spec.Action
@@ -511,6 +531,10 @@ func (ne *NetworkPolicyEnforcer) UpdateNetworkSecurityPolicies(secPolicies []tp.
 			}
 			rules := generateRules("Ingress", ingress.From, ingress.Ports, ingress.Interface, action, policyName, ingress.Limit, ingress.Duration, idx, &allQuotas, podIPs, isPodPolicy, policyLevel)
 			newRules = append(newRules, rules...)
+
+			if isPodPolicy && (ingress.Limit == "" || ingress.Duration == "") {
+				ne.Logger.Warnf("Policy %s targets Pods but has no limit/duration.", policyName)
+			}
 
 			if ingress.Limit != "" && ingress.Duration != "" {
 				parsedLimit, err := parseLimitToNFT(ingress.Limit)
@@ -547,6 +571,10 @@ func (ne *NetworkPolicyEnforcer) UpdateNetworkSecurityPolicies(secPolicies []tp.
 			}
 			rules := generateRules("Egress", egress.To, egress.Ports, egress.Interface, action, policyName, egress.Limit, egress.Duration, idx, &allQuotas, podIPs, isPodPolicy, policyLevel)
 			newRules = append(newRules, rules...)
+
+			if isPodPolicy && (egress.Limit == "" || egress.Duration == "") {
+				ne.Logger.Warnf("Policy %s targets Pods but has no limit/duration.", policyName)
+			}
 
 			if egress.Limit != "" && egress.Duration != "" {
 				parsedLimit, err := parseLimitToNFT(egress.Limit)
@@ -612,6 +640,10 @@ func (ne *NetworkPolicyEnforcer) UpdateNetworkSecurityPolicies(secPolicies []tp.
 
 	if err := ne.applyNFTables(hasAllowPolicy, allQuotas); err != nil {
 		ne.Logger.Errf("Failed to apply network policies: %v", err)
+	} else {
+		for podName := range matchedPods {
+			ne.Logger.Printf("Successfully updated and applied network security rule for pod %s", podName)
+		}
 	}
 }
 
@@ -699,7 +731,11 @@ func generateRules(direction string, peers []tp.NetworkPeer, ports []tp.PortType
 		shouldLog = true
 	}
 
-	logPrefix := policyName + " " + direction + " " + action + " " + policyLevel
+	logLevelStr := ""
+	if isPodPolicy {
+		logLevelStr = " " + policyLevel
+	}
+	logPrefix := policyName + " " + direction + " " + action + logLevelStr
 	if limit != "" {
 		logPrefix = logPrefix + " " + limit
 	}
@@ -1359,20 +1395,22 @@ func (ne *NetworkPolicyEnforcer) setupQuotaTimer(quotaName string, durationSecon
 				// Re-arm the log silencer so the user gets alerted on the NEXT breach
 				ne.QuotaSilencer.Range(func(key, _ any) bool {
 					keyStr := key.(string)
-					parts := strings.Split(keyStr, "-")
-					if len(parts) > 1 {
-						policyParts := strings.Split(parts[1], " ")
-						if len(policyParts) >= 2 {
-							policyName := sanitizeQuotaName(policyParts[0])
-							direction := policyParts[1]
-							if strings.Contains(quotaName, policyName) && strings.Contains(quotaName, direction) {
-								sanitizedPod := sanitizeQuotaName(parts[0])
-								// If the quotaName contains the pod IP, it must match this pod
+					parts := strings.Split(keyStr, "|")
+					if len(parts) >= 4 {
+						scope := parts[0]
+						targetIP := parts[1]
+						policy := parts[2]
+						dir := parts[3]
+
+						sanitizedPolicy := sanitizeQuotaName(policy)
+						if strings.Contains(quotaName, sanitizedPolicy) && strings.Contains(quotaName, dir) {
+							if scope == "pod" {
+								sanitizedPod := sanitizeQuotaName(targetIP)
 								if strings.Contains(quotaName, sanitizedPod) {
 									ne.QuotaSilencer.Delete(key)
 								} else {
-									// If it doesn't contain any pod IP (i.e. policy-level), delete it
-									// Let's check if the quotaName contains any other pod IP from active endpoints
+									// If it doesn't contain the pod IP, check if this is a policy-level quota.
+									// A policy-level quota does not contain any pod IPs.
 									isPodSpecific := false
 									ne.EndPointsLock.Lock()
 									for ip := range ne.EndPoints {
@@ -1386,6 +1424,9 @@ func (ne *NetworkPolicyEnforcer) setupQuotaTimer(quotaName string, durationSecon
 										ne.QuotaSilencer.Delete(key)
 									}
 								}
+							} else if scope == "host" {
+								// Host policy is global, delete it immediately
+								ne.QuotaSilencer.Delete(key)
 							}
 						}
 					}

@@ -2678,7 +2678,6 @@ func (dm *KubeArmorDaemon) UpdateNetworkSecurityPolicies() {
 			containers[k] = v
 		}
 		dm.ContainersLock.RUnlock()
-		fmt.Println("secpolicies: ", secPolicies)
 		// enforce network policies
 		dm.NetworkPolicyEnforcer.UpdateNetworkSecurityPolicies(secPolicies, endpoints, containers)
 	}
@@ -2857,7 +2856,6 @@ func (dm *KubeArmorDaemon) ParseAndUpdateNetworkSecurityPolicy(event tp.K8sKubeA
 	dm.NetworkSecurityPoliciesLock.Unlock()
 
 	dm.Logger.Printf("Detected a Network Security Policy (%s/%s)", strings.ToLower(event.Type), secPolicy.Metadata["policyName"])
-	fmt.Println("got policy", secPolicy)
 	// apply network security policies to a host
 	dm.UpdateNetworkSecurityPolicies()
 
