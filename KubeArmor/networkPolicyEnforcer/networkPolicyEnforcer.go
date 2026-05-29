@@ -475,18 +475,13 @@ func (ne *NetworkPolicyEnforcer) UpdateNetworkSecurityPolicies(secPolicies []tp.
 	ne.RulesLock.Lock()
 	defer ne.RulesLock.Unlock()
 
-	// Clean up existing timers
-	ne.QuotasLock.Lock()
-	for _, cancel := range ne.QuotaCancel {
-		cancel()
-	}
-	ne.QuotaTimers = make(map[string]*time.Ticker)
-	ne.QuotaCancel = make(map[string]context.CancelFunc)
-	ne.QuotasLock.Unlock()
-
 	var newRules []NetworkRule
 	var allQuotas []QuotaObj
 	hasAllowPolicy := false
+	// neededTimers collects quotaName -> durationSeconds for all quotas in
+	// this update. Used below for selective timer management so that unrelated
+	// quota windows are not reset when an unrelated policy changes.
+	neededTimers := map[string]uint32{}
 	matchedPods := make(map[string]bool)
 
 	// generate Rules
@@ -549,11 +544,11 @@ func (ne *NetworkPolicyEnforcer) UpdateNetworkSecurityPolicies(secPolicies []tp.
 						if isPodPolicy && len(podIPs) > 0 && policyLevel != "policy" {
 							for _, ip := range podIPs {
 								quotaName := sanitizeQuotaName(fmt.Sprintf("quota_%s_Ingress_%d_%s", policyName, idx, ip))
-								ne.setupQuotaTimer(quotaName, parsedDuration)
+								neededTimers[quotaName] = parsedDuration
 							}
 						} else {
 							quotaName := sanitizeQuotaName(fmt.Sprintf("quota_%s_Ingress_%d", policyName, idx))
-							ne.setupQuotaTimer(quotaName, parsedDuration)
+							neededTimers[quotaName] = parsedDuration
 						}
 					}
 				}
@@ -589,16 +584,36 @@ func (ne *NetworkPolicyEnforcer) UpdateNetworkSecurityPolicies(secPolicies []tp.
 						if isPodPolicy && len(podIPs) > 0 && policyLevel != "policy" {
 							for _, ip := range podIPs {
 								quotaName := sanitizeQuotaName(fmt.Sprintf("quota_%s_Egress_%d_%s", policyName, idx, ip))
-								ne.setupQuotaTimer(quotaName, parsedDuration)
+								neededTimers[quotaName] = parsedDuration
 							}
 						} else {
 							quotaName := sanitizeQuotaName(fmt.Sprintf("quota_%s_Egress_%d", policyName, idx))
-							ne.setupQuotaTimer(quotaName, parsedDuration)
+							neededTimers[quotaName] = parsedDuration
 						}
 					}
 				}
 			}
 		}
+	}
+
+	// Selective timer management:
+	// - Stop and remove timers for quotas that no longer exist in any policy.
+	// - Leave running timers for unchanged quotas untouched (preserves quota windows).
+	// - Start timers only for genuinely new quotas.
+	ne.QuotasLock.Lock()
+	for name, t := range ne.QuotaTimers {
+		if _, stillNeeded := neededTimers[name]; !stillNeeded {
+			t.Stop()
+			if cancelFn, ok := ne.QuotaCancel[name]; ok {
+				cancelFn()
+			}
+			delete(ne.QuotaTimers, name)
+			delete(ne.QuotaCancel, name)
+		}
+	}
+	ne.QuotasLock.Unlock()
+	for name, duration := range neededTimers {
+		ne.setupQuotaTimer(name, duration) // no-op if timer already running
 	}
 
 	// host log
@@ -696,11 +711,14 @@ func parseDurationToSeconds(d string) (uint32, error) {
 	return uint32(parsed.Seconds()), nil
 }
 
+// quotaNameReplacer is a package-level singleton to avoid allocating a new
+// strings.Replacer on every sanitizeQuotaName call (called in tight loops).
+var quotaNameReplacer = strings.NewReplacer("-", "_", " ", "_", ".", "_", ":", "_")
+
 // sanitizeQuotaName replaces characters that are invalid in nftables quota
 // object names (hyphens, spaces, dots, colons) with underscores.
 func sanitizeQuotaName(name string) string {
-	r := strings.NewReplacer("-", "_", " ", "_", ".", "_", ":", "_")
-	return r.Replace(name)
+	return quotaNameReplacer.Replace(name)
 }
 
 func generateRules(direction string, peers []tp.NetworkPeer, ports []tp.PortType, ifaces []string, action, policyName string, limit string, duration string, ruleIdx int, quotas *[]QuotaObj, podIPs []string, isPodPolicy bool, policyLevel string) []NetworkRule {
@@ -885,33 +903,8 @@ func generateRules(direction string, peers []tp.NetworkPeer, ports []tp.PortType
 						}
 
 						var podParts []string
-						// Interface
-						if len(ifaceSet) > 0 {
-							op := "iifname"
-							if direction == "Egress" {
-								op = "oifname"
-							}
-							if len(ifaceSet) == 1 {
-								podParts = append(podParts, fmt.Sprintf("%s %s", op, ifaceSet[0]))
-							} else {
-								podParts = append(podParts, fmt.Sprintf("%s { %s }", op, strings.Join(ifaceSet, ", ")))
-							}
-						}
-
-						// CIDR
-						if len(cidrs) > 0 {
-							dir := "saddr"
-							if direction == "Egress" {
-								dir = "daddr"
-							}
-							if len(cidrs) == 1 {
-								podParts = append(podParts, fmt.Sprintf("%s %s %s", addrFamily, dir, cidrs[0]))
-							} else {
-								podParts = append(podParts, fmt.Sprintf("%s %s { %s }", addrFamily, dir, strings.Join(cidrs, ", ")))
-							}
-						}
-
-						// This specific pod
+						// Pod-level quota rules match solely on the pod IP.
+						// Interface and CIDR filters do not apply to pod policies.
 						dir := "daddr"
 						if direction == "Egress" {
 							dir = "saddr"
@@ -1040,33 +1033,8 @@ func generateRules(direction string, peers []tp.NetworkPeer, ports []tp.PortType
 						}
 
 						var podParts []string
-						// Interface
-						if len(ifaceSet) > 0 {
-							op := "iifname"
-							if direction == "Egress" {
-								op = "oifname"
-							}
-							if len(ifaceSet) == 1 {
-								podParts = append(podParts, fmt.Sprintf("%s %s", op, ifaceSet[0]))
-							} else {
-								podParts = append(podParts, fmt.Sprintf("%s { %s }", op, strings.Join(ifaceSet, ", ")))
-							}
-						}
-
-						// CIDR
-						if len(cidrs) > 0 {
-							dir := "saddr"
-							if direction == "Egress" {
-								dir = "daddr"
-							}
-							if len(cidrs) == 1 {
-								podParts = append(podParts, fmt.Sprintf("%s %s %s", addrFamily, dir, cidrs[0]))
-							} else {
-								podParts = append(podParts, fmt.Sprintf("%s %s { %s }", addrFamily, dir, strings.Join(cidrs, ", ")))
-							}
-						}
-
-						// This specific pod
+						// Pod-level quota rules match solely on the pod IP.
+						// Interface and CIDR filters do not apply to pod policies.
 						dir := "daddr"
 						if direction == "Egress" {
 							dir = "saddr"
@@ -1374,6 +1342,12 @@ func (ne *NetworkPolicyEnforcer) setupQuotaTimer(quotaName string, durationSecon
 	}
 
 	ne.QuotasLock.Lock()
+	// Idempotency guard: if a timer is already running for this quota,
+	// leave it alone so the existing quota window is preserved.
+	if _, exists := ne.QuotaTimers[quotaName]; exists {
+		ne.QuotasLock.Unlock()
+		return
+	}
 	defer ne.QuotasLock.Unlock()
 
 	ctx, cancel := context.WithCancel(context.Background()) // #nosec G118
@@ -1412,14 +1386,14 @@ func (ne *NetworkPolicyEnforcer) setupQuotaTimer(quotaName string, durationSecon
 									// If it doesn't contain the pod IP, check if this is a policy-level quota.
 									// A policy-level quota does not contain any pod IPs.
 									isPodSpecific := false
-									ne.EndPointsLock.Lock()
+									ne.EndPointsLock.RLock()
 									for ip := range ne.EndPoints {
 										if strings.Contains(quotaName, sanitizeQuotaName(ip)) {
 											isPodSpecific = true
 											break
 										}
 									}
-									ne.EndPointsLock.Unlock()
+									ne.EndPointsLock.RUnlock()
 									if !isPodSpecific {
 										ne.QuotaSilencer.Delete(key)
 									}
@@ -1437,12 +1411,15 @@ func (ne *NetworkPolicyEnforcer) setupQuotaTimer(quotaName string, durationSecon
 	}()
 }
 
+// wellKnownPorts maps service names to port numbers.
+// Package-level to avoid allocating a new map literal on every resolvePort call.
+var wellKnownPorts = map[string]string{"ssh": "22", "http": "80", "https": "443", "dns": "53"}
+
 func resolvePort(port string) string {
 	if _, err := strconv.Atoi(port); err == nil {
 		return port
 	}
-	services := map[string]string{"ssh": "22", "http": "80", "https": "443", "dns": "53"}
-	if val, ok := services[strings.ToLower(port)]; ok {
+	if val, ok := wellKnownPorts[strings.ToLower(port)]; ok {
 		return val
 	}
 	return port
