@@ -8,7 +8,6 @@
 package enforcer
 
 import (
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -37,6 +36,10 @@ type RuntimeEnforcerWin struct {
 	// Mutex for serializing policy updates
 	mu sync.Mutex
 
+	// Cached set of Packaged App executables (.exe basenames).
+	// Built at startup by scanning %ProgramFiles%\WindowsApps.
+	appxSet map[string]struct{}
+
 	// AppLocker event-log poller — emits MatchedHostPolicy alerts for
 	// processes blocked by AppLocker rules.
 	appLockerPoller *AppLockerPoller
@@ -49,11 +52,6 @@ func NewRuntimeEnforcer(node tp.Node, logger *fd.Feeder, monitor *mon.SystemMoni
 	re.EnforcerType = "Minifilter"
 	re.deviceHandle = windows.InvalidHandle
 
-	// Attempt to start the Karmor driver if it's not already running.
-	// We ignore the error here because if it's already running or if we lack
-	// permissions, the subsequent openDriverDevice() call will catch the real issue.
-	_ = exec.Command("fltmc.exe", "load", "kubearmor").Run()
-
 	// Attempt to open the Karmor driver device for IOCTL communication.
 	// If the driver is not loaded, enforcement is disabled but monitoring
 	// (via FltMgr communication port) still works.
@@ -64,6 +62,10 @@ func NewRuntimeEnforcer(node tp.Node, logger *fd.Feeder, monitor *mon.SystemMoni
 		re.deviceHandle = handle
 		logger.Printf("Karmor driver device opened successfully for enforcement")
 	}
+
+	// Build the set of Packaged App executables for AppLocker policy generation.
+	re.appxSet = buildAppxExeSet()
+	logger.Printf("Built Packaged App set: found %d executables", len(re.appxSet))
 
 	// Start the AppLocker event-log poller. It polls every 5 seconds for new
 	// AppLocker block events (Event IDs 8003/8004/8006) and emits them as

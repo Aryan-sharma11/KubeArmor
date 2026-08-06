@@ -78,20 +78,16 @@ loop:
 		case req := <-requests:
 			switch req.Cmd {
 			case svc.Stop, svc.Shutdown:
-				status <- svc.Status{State: svc.StopPending, WaitHint: 20000}
+				status <- svc.Status{State: svc.StopPending}
 				if core.Daemon != nil {
 					elog.Info(1, "KubeArmor service stopping...")
-					go core.Daemon.DestroyKubeArmorDaemon()
-					elog.Info(1, "KubeArmor service shutdown initiated")
+					core.Daemon.DestroyKubeArmorDaemon()
+					elog.Info(1, "KubeArmor service stopped")
 				}
-				// Wait for core.KubeArmor() goroutine to exit, but with a timeout to avoid SCM Error 1053
-				elog.Info(2, "Waiting for core goroutine to exit (up to 15s)")
-				select {
-				case <-done:
-					elog.Info(2, "Core goroutine exited cleanly")
-				case <-time.After(15 * time.Second):
-					elog.Info(2, "Timeout waiting for core goroutine. Forcing shutdown.")
-				}
+				// Wait for core.KubeArmor() goroutine to exit
+				elog.Info(2, "Waiting for core goroutine to exit")
+				<-done
+				elog.Info(2, "Core goroutine exited")
 
 				// Tell SCM we are fully stopped
 				status <- svc.Status{State: svc.Stopped}
@@ -214,10 +210,6 @@ func installService() error {
 		kg.Warnf("Failed to register event log source: %v", err)
 	}
 
-	if err := installDriver(); err != nil {
-		kg.Errf("Failed to install driver: %v", err)
-	}
-
 	fmt.Printf("Service %q installed successfully.\n", svcName)
 	return nil
 }
@@ -271,10 +263,6 @@ func uninstallService() error {
 		return fmt.Errorf("could not delete service: %w", err)
 	}
 	_ = eventlog.Remove(svcName)
-
-	if err := uninstallDriver(); err != nil {
-		kg.Errf("Failed to uninstall driver: %v", err)
-	}
 
 	fmt.Printf("Service %q uninstalled successfully.\n", svcName)
 	return nil
