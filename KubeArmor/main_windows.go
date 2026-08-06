@@ -7,7 +7,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -78,20 +77,16 @@ loop:
 		case req := <-requests:
 			switch req.Cmd {
 			case svc.Stop, svc.Shutdown:
-				status <- svc.Status{State: svc.StopPending, WaitHint: 20000}
+				status <- svc.Status{State: svc.StopPending}
 				if core.Daemon != nil {
 					elog.Info(1, "KubeArmor service stopping...")
-					go core.Daemon.DestroyKubeArmorDaemon()
-					elog.Info(1, "KubeArmor service shutdown initiated")
+					core.Daemon.DestroyKubeArmorDaemon()
+					elog.Info(1, "KubeArmor service stopped")
 				}
-				// Wait for core.KubeArmor() goroutine to exit, but with a timeout to avoid SCM Error 1053
-				elog.Info(2, "Waiting for core goroutine to exit (up to 15s)")
-				select {
-				case <-done:
-					elog.Info(2, "Core goroutine exited cleanly")
-				case <-time.After(15 * time.Second):
-					elog.Info(2, "Timeout waiting for core goroutine. Forcing shutdown.")
-				}
+				// Wait for core.KubeArmor() goroutine to exit
+				elog.Info(2, "Waiting for core goroutine to exit")
+				<-done
+				elog.Info(2, "Core goroutine exited")
 
 				// Tell SCM we are fully stopped
 				status <- svc.Status{State: svc.Stopped}
@@ -214,37 +209,7 @@ func installService() error {
 		kg.Warnf("Failed to register event log source: %v", err)
 	}
 
-	if err := installDriver(); err != nil {
-		kg.Errf("Failed to install driver: %v", err)
-	}
-
 	fmt.Printf("Service %q installed successfully.\n", svcName)
-	return nil
-}
-
-func installDriver() error {
-	exePath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("could not determine executable path: %w", err)
-	}
-	dir := filepath.Dir(exePath)
-	
-	infPath := filepath.Join(dir, "pkg", "KubeArmorWindowsDriver", "kubearmor.inf")
-	if _, err := os.Stat(infPath); os.IsNotExist(err) {
-		infPath = filepath.Join(dir, "kubearmor.inf")
-		if _, err := os.Stat(infPath); os.IsNotExist(err) {
-			kg.Warnf("kubearmor.inf not found, skipping driver installation")
-			return nil
-		}
-	}
-
-	cmdStr := fmt.Sprintf("DefaultInstall 132 %s", infPath)
-	cmd := exec.Command("rundll32.exe", "setupapi.dll,InstallHinfSection", cmdStr)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("output: %s, err: %w", string(out), err)
-	}
-	fmt.Println("Driver installed successfully.")
 	return nil
 }
 
@@ -272,37 +237,7 @@ func uninstallService() error {
 	}
 	_ = eventlog.Remove(svcName)
 
-	if err := uninstallDriver(); err != nil {
-		kg.Errf("Failed to uninstall driver: %v", err)
-	}
-
 	fmt.Printf("Service %q uninstalled successfully.\n", svcName)
-	return nil
-}
-
-func uninstallDriver() error {
-	exePath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("could not determine executable path: %w", err)
-	}
-	dir := filepath.Dir(exePath)
-	
-	infPath := filepath.Join(dir, "pkg", "KubeArmorWindowsDriver", "kubearmor.inf")
-	if _, err := os.Stat(infPath); os.IsNotExist(err) {
-		infPath = filepath.Join(dir, "kubearmor.inf")
-		if _, err := os.Stat(infPath); os.IsNotExist(err) {
-			kg.Warnf("kubearmor.inf not found, skipping driver uninstallation")
-			return nil
-		}
-	}
-
-	cmdStr := fmt.Sprintf("DefaultUninstall 132 %s", infPath)
-	cmd := exec.Command("rundll32.exe", "setupapi.dll,InstallHinfSection", cmdStr)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("output: %s, err: %w", string(out), err)
-	}
-	fmt.Println("Driver uninstalled successfully.")
 	return nil
 }
 
