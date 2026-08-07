@@ -16,15 +16,15 @@ PRULE_ENTRY AllocateRuleEntry(
     }
     RtlZeroMemory(entry, sizeof(RULE_ENTRY));
 
-    USHORT size = Path->Length + (USHORT)sizeof(WCHAR); // +2 for null terminator
+    USHORT size = Path->Length;
     entry->Path.Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, size, RULE_PATH_TAG);
     if (!entry->Path.Buffer) {
-        KdPrint(("failed to allocate rule path buffer...\n"));
+        KdPrint(("failed to allocate rule path buffer..."));
         ExFreePoolWithTag(entry, RULE_ENTRY_TAG);
         return NULL;
     }
     entry->Path.Length = 0;
-    entry->Path.MaximumLength = size;  // exactly covers Length + null terminator
+    entry->Path.MaximumLength = Path->MaximumLength;
     entry->Action = Action;
     entry->RuleType = RuleType;
     entry->MatchType = MatchType;

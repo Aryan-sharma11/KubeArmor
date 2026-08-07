@@ -7,6 +7,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -209,7 +210,37 @@ func installService() error {
 		kg.Warnf("Failed to register event log source: %v", err)
 	}
 
+	if err := installDriver(); err != nil {
+		kg.Errf("Failed to install driver: %v", err)
+	}
+
 	fmt.Printf("Service %q installed successfully.\n", svcName)
+	return nil
+}
+
+func installDriver() error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("could not determine executable path: %w", err)
+	}
+	dir := filepath.Dir(exePath)
+	
+	infPath := filepath.Join(dir, "pkg", "KubeArmorWindowsDriver", "kubearmor.inf")
+	if _, err := os.Stat(infPath); os.IsNotExist(err) {
+		infPath = filepath.Join(dir, "kubearmor.inf")
+		if _, err := os.Stat(infPath); os.IsNotExist(err) {
+			kg.Warnf("kubearmor.inf not found, skipping driver installation")
+			return nil
+		}
+	}
+
+	cmdStr := fmt.Sprintf("DefaultInstall 132 %s", infPath)
+	cmd := exec.Command("rundll32.exe", "setupapi.dll,InstallHinfSection", cmdStr)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("output: %s, err: %w", string(out), err)
+	}
+	fmt.Println("Driver installed successfully.")
 	return nil
 }
 
@@ -237,7 +268,37 @@ func uninstallService() error {
 	}
 	_ = eventlog.Remove(svcName)
 
+	if err := uninstallDriver(); err != nil {
+		kg.Errf("Failed to uninstall driver: %v", err)
+	}
+
 	fmt.Printf("Service %q uninstalled successfully.\n", svcName)
+	return nil
+}
+
+func uninstallDriver() error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("could not determine executable path: %w", err)
+	}
+	dir := filepath.Dir(exePath)
+	
+	infPath := filepath.Join(dir, "pkg", "KubeArmorWindowsDriver", "kubearmor.inf")
+	if _, err := os.Stat(infPath); os.IsNotExist(err) {
+		infPath = filepath.Join(dir, "kubearmor.inf")
+		if _, err := os.Stat(infPath); os.IsNotExist(err) {
+			kg.Warnf("kubearmor.inf not found, skipping driver uninstallation")
+			return nil
+		}
+	}
+
+	cmdStr := fmt.Sprintf("DefaultUninstall 132 %s", infPath)
+	cmd := exec.Command("rundll32.exe", "setupapi.dll,InstallHinfSection", cmdStr)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("output: %s, err: %w", string(out), err)
+	}
+	fmt.Println("Driver uninstalled successfully.")
 	return nil
 }
 

@@ -3,8 +3,8 @@
 #include <wdf.h>
 #include "KarmorLogs.h"
 
-// ETW registration handle (defined in Karmor.cpp)
-extern REGHANDLE g_EtwRegHandle;
+// ETW registration handle
+REGHANDLE g_EtwRegHandle = 0;
 
 // Function declarations
 NTSTATUS InitializeETW();

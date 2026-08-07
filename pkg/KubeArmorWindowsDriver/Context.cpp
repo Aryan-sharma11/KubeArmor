@@ -1,7 +1,6 @@
 #include "Context.h"
 #include <ntddstor.h>
 
-#ifdef DBG
 void PrintInstanceContext(InstanceContext* context) {
     if (!context) {
         DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL,
@@ -59,9 +58,7 @@ void PrintInstanceContext(InstanceContext* context) {
     DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
         "[kubearmor] ============================\n");
 }
-#endif // DBG
 
-#ifdef DBG
 void PrintStreamHandleContext(StreamHandleContext* context)
 {
     if (!context) {
@@ -163,7 +160,6 @@ void PrintStreamHandleContext(StreamHandleContext* context)
     DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL,
         "[kubearmor] ============================================\n");
 }
-#endif // DBG
 
 NTSTATUS Context::InitializeInstanceContext(
     PCFLT_RELATED_OBJECTS fltObjects,
@@ -449,6 +445,8 @@ NTSTATUS Context::InitializeStreamHandleContext(
     PCFLT_RELATED_OBJECTS fltObjects,
     StreamHandleContext* context) {
 
+    //return STATUS_SUCCESS;
+
     if (!context || !data || !fltObjects) {
         return STATUS_INVALID_PARAMETER;
     }
@@ -653,22 +651,29 @@ BOOLEAN Context::IsSystemFile(PUNICODE_STRING filePath) {
         return FALSE;
     }
 
-    // Static search prefixes — already in upper-case so we can do a
-    // direct case-insensitive prefix comparison without any allocation.
-    static const WCHAR* systemPrefixes[] = {
-        L"\\WINDOWS\\SYSTEM32\\",
-        L"\\WINDOWS\\SYSWOW64\\",
-        L"\\WINDOWS\\WINSXS\\",
-        L"\\PROGRAM FILES\\",
-        L"\\PROGRAM FILES (X86)\\"
+    static const WCHAR* systemPaths[] = {
+        L"\\Windows\\System32\\",
+        L"\\Windows\\SysWOW64\\",
+        L"\\Windows\\WinSxS\\",
+        L"\\Program Files\\",
+        L"\\Program Files (x86)\\"
     };
 
-    for (ULONG i = 0; i < ARRAYSIZE(systemPrefixes); i++) {
-        UNICODE_STRING prefix;
-        RtlInitUnicodeString(&prefix, systemPrefixes[i]);
-        // RtlPrefixUnicodeString with CaseInsensitive=TRUE: O(prefix.Length),
-        // no heap allocation, safe at any IRQL <= DISPATCH_LEVEL.
-        if (RtlPrefixUnicodeString(&prefix, filePath, TRUE)) {
+    for (ULONG i = 0; i < ARRAYSIZE(systemPaths); i++) {
+        UNICODE_STRING sysPath;
+        RtlInitUnicodeString(&sysPath, systemPaths[i]);
+
+        // Case-insensitive substring search
+        UNICODE_STRING upperFilePath;
+        WCHAR upperBuffer[512];
+
+        upperFilePath.Buffer = upperBuffer;
+        upperFilePath.Length = 0;
+        upperFilePath.MaximumLength = sizeof(upperBuffer);
+
+        RtlUpcaseUnicodeString(&upperFilePath, filePath, FALSE);
+
+        if (wcsstr(upperBuffer, systemPaths[i]) != nullptr) {
             return TRUE;
         }
     }
@@ -692,4 +697,4 @@ ULONG Context::ComputeFilePathHash(PUNICODE_STRING filePath) {
     return hash;
 }
 
-// ============================= //
+// ============================= //

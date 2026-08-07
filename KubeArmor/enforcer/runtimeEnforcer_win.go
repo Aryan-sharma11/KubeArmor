@@ -8,6 +8,7 @@
 package enforcer
 
 import (
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -51,6 +52,11 @@ func NewRuntimeEnforcer(node tp.Node, logger *fd.Feeder, monitor *mon.SystemMoni
 	re.Logger = logger
 	re.EnforcerType = "Minifilter"
 	re.deviceHandle = windows.InvalidHandle
+
+	// Attempt to start the Karmor driver if it's not already running.
+	// We ignore the error here because if it's already running or if we lack
+	// permissions, the subsequent openDriverDevice() call will catch the real issue.
+	_ = exec.Command("fltmc.exe", "load", "kubearmor").Run()
 
 	// Attempt to open the Karmor driver device for IOCTL communication.
 	// If the driver is not loaded, enforcement is disabled but monitoring

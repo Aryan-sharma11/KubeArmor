@@ -19,18 +19,22 @@ static PRULE_HASH_TABLE AllocateHashTable() {
 static VOID DestroyHashTable(PRULE_HASH_TABLE table) {
     if (!table)
         return;
-    KdPrint(("destroying rule table...\n"));
+    KdPrint(("destroying rule table..."));
     for (int i = 0; i < NUM_BUCKETS; ++i) {
         PLIST_ENTRY head = &table->Buckets[i];
         while (!IsListEmpty(head)) {
-            PRULE_ENTRY rule = CONTAINING_RECORD(
-                RemoveHeadList(head), RULE_ENTRY, ListEntry);
-            KdPrint(("removed a rule with path: %wZ\n", &rule->Path));
-            FreeRuleEntry(rule);
+            PLIST_ENTRY entry = RemoveHeadList(head);
+            if (entry) {
+                PRULE_ENTRY rule = CONTAINING_RECORD(entry, RULE_ENTRY, ListEntry);
+                if (rule) {
+                    KdPrint(("removed a rule with path: %wZ...", &rule->Path));
+                    FreeRuleEntry(rule);
+                }
+            }
         }
     }
     ExFreePoolWithTag(table, RULE_TABLE_TAG);
-    KdPrint(("destroyed all rules\n"));
+    KdPrint(("destroyed all rules..."));
 }
 
 // Helper: clear all entries from a hash table (without freeing the table itself)
@@ -40,8 +44,13 @@ static VOID ClearHashTable(PRULE_HASH_TABLE table) {
     for (int i = 0; i < NUM_BUCKETS; ++i) {
         PLIST_ENTRY head = &table->Buckets[i];
         while (!IsListEmpty(head)) {
-            FreeRuleEntry(CONTAINING_RECORD(
-                RemoveHeadList(head), RULE_ENTRY, ListEntry));
+            PLIST_ENTRY entry = RemoveHeadList(head);
+            if (entry) {
+                PRULE_ENTRY rule = CONTAINING_RECORD(entry, RULE_ENTRY, ListEntry);
+                if (rule) {
+                    FreeRuleEntry(rule);
+                }
+            }
         }
     }
 }
@@ -107,6 +116,7 @@ NTSTATUS Globals::Init() {
         return STATUS_INSUFFICIENT_RESOURCES;
     }
     m_Lock.Init();
+    m_DefaultProcessPosture = RuleAction::Audit;
     m_ProcessWhitelist = 0;
 
     // Initialize file rule table
@@ -135,6 +145,17 @@ VOID Globals::DestroyRuleHashTable() {
     m_Table = NULL;
 }
 
+VOID Globals::SetDefaultProcessPosture(_In_ RuleAction Posture) {
+    m_DefaultProcessPosture = Posture;
+}
+
+RuleAction Globals::GetDefaultProcessPosture() {
+    return m_DefaultProcessPosture;
+}
+
+BOOLEAN Globals::IsProcessWhitelist() {
+    return m_ProcessWhitelist > 0;
+}
 
 BOOLEAN Globals::InsertRule(_In_ PUNICODE_STRING Path, _In_ RuleAction Action) {
     Locker<FastMutex> locker(m_Lock);
@@ -238,8 +259,6 @@ BOOLEAN Globals::InsertFileRule(
 }
 
 PRULE_ENTRY Globals::LookupFileRule(_In_ PUNICODE_STRING Path) {
-    Locker<FastMutex> locker(m_FileRuleLock);
-
     // Phase 1: Exact-path hash lookup (fast path for MATCH_PATH rules)
     PRULE_ENTRY exactMatch = LookupRuleInTable(m_FileRuleTable, Path);
     if (exactMatch)
