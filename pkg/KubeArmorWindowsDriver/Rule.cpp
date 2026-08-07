@@ -17,7 +17,7 @@ PRULE_ENTRY AllocateRuleEntry(
 
     RtlZeroMemory(entry, sizeof(RULE_ENTRY));
 
-    USHORT size = Path->Length + (USHORT)sizeof(WCHAR); // +2 for null terminator
+    USHORT size = Path->Length;
     entry->Path.Buffer = (PWCH)ExAllocatePool2(POOL_FLAG_NON_PAGED, size, RULE_PATH_TAG);
     if (!entry->Path.Buffer) {
         ExFreePoolWithTag(entry, RULE_ENTRY_TAG);

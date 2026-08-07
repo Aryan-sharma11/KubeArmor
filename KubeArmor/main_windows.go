@@ -210,6 +210,10 @@ func installService() error {
 		kg.Warnf("Failed to register event log source: %v", err)
 	}
 
+	if err := installDriver(); err != nil {
+		kg.Errf("Failed to install driver: %v", err)
+	}
+
 	fmt.Printf("Service %q installed successfully.\n", svcName)
 	return nil
 }
@@ -263,6 +267,10 @@ func uninstallService() error {
 		return fmt.Errorf("could not delete service: %w", err)
 	}
 	_ = eventlog.Remove(svcName)
+
+	if err := uninstallDriver(); err != nil {
+		kg.Errf("Failed to uninstall driver: %v", err)
+	}
 
 	fmt.Printf("Service %q uninstalled successfully.\n", svcName)
 	return nil

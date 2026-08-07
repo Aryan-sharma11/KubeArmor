@@ -6,7 +6,7 @@
 #include "FastMutex.h"
 #include "Rule.h"
 
-#define RULE_TABLE_TAG 'tblR'  // pool tag for RULE_HASH_TABLE structs
+#define RULE_TABLE_TAG 'rulP'
 
 typedef struct _RULE_HASH_TABLE {
 	LIST_ENTRY Buckets[NUM_BUCKETS];
@@ -15,7 +15,10 @@ typedef struct _RULE_HASH_TABLE {
 struct Globals {
 	NTSTATUS Init();
 
-	// Process rule operations
+	// Process rule operations (existing)
+	VOID SetDefaultProcessPosture(_In_ RuleAction Posture);
+	RuleAction GetDefaultProcessPosture();
+	BOOLEAN IsProcessWhitelist();
 	BOOLEAN InsertRule(_In_ PUNICODE_STRING Path, _In_ RuleAction Action);
 	// LookupRule returns a raw pointer — caller must hold m_Lock.
 	// Prefer LookupRuleAction for safe lock-held action retrieval.
@@ -36,12 +39,13 @@ struct Globals {
 	VOID ClearAllRules();
 
 private:
-	// Process rule state
-	ULONG           m_ProcessWhitelist;     // counts Allow-action rules (whitelist mode tracking)
+	// Process rule state (existing)
+	ULONG m_ProcessWhitelist;
+	RuleAction m_DefaultProcessPosture;
 	PRULE_HASH_TABLE m_Table;
-	FastMutex        m_Lock;
+	FastMutex m_Lock;
 
-	// File rule state
+	// File rule state (new)
 	PRULE_HASH_TABLE m_FileRuleTable;
-	FastMutex        m_FileRuleLock;
+	FastMutex m_FileRuleLock;
 };

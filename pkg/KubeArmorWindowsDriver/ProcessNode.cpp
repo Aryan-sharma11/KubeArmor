@@ -3,21 +3,7 @@
 
 #include "ProcessNode.h"
 
-// Plain global — initialized before DriverEntry by the WDK CRT startup code.
-// Using a global (not a function-local static) avoids the CRT thread-guard
-// (_Init_thread_header) that MSVC emits for magic-statics, which is a
-// user-mode-only mechanism and will crash in the kernel.
-static ProcessCache g_ProcessCache;
-
-ProcessCache& ProcessCache::GetInstance() {
-    return g_ProcessCache;
-}
-
 NTSTATUS ProcessCache::Initialize() {
-	for (ULONG i = 0; i < HASH_TABLE_SIZE; i++) {
-		InitializeListHead(&hashTable_[i]);
-	}
-	tableLock_.Init();
 	return STATUS_SUCCESS;
 }
 
@@ -40,7 +26,7 @@ void ProcessCache::Cleanup() {
 NTSTATUS ProcessCache::AddProcess(
 	_In_ HANDLE processID,
 	_In_ HANDLE parentProcessID,
-	_In_ HANDLE creatorProcessID,
+	_In_ HANDLE createrProcessID,
 	_In_opt_ PCUNICODE_STRING imagePath) {
 
 	ProcessEntry* ctx = AllocateProcessContext();
@@ -51,7 +37,7 @@ NTSTATUS ProcessCache::AddProcess(
 
 	ctx->processId = processID;
 	ctx->parentProcessId = parentProcessID;
-	ctx->creatorProcessId = creatorProcessID;
+	ctx->createrProcessId = createrProcessID;
 	ctx->referenceCount = 1;
 	ctx->hasExited = FALSE;
 

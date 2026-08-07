@@ -500,7 +500,7 @@ FLT_POSTOP_CALLBACK_STATUS PostCleanupCallback(
         status = FltGetInstanceContext(fltObjects->Instance, (PFLT_CONTEXT*)&pInstCtx);
         if (!NT_SUCCESS(status)) __leave;
 
-        BOOLEAN deleted = pStrHandleCtx->deleteOnClose | pStrHandleCtx->dispositionDelete;
+        BOOLEAN deleted = pStrHandleCtx->deleteOnClose || pStrHandleCtx->dispositionDelete;
 
         if (pStrHandleCtx->wasRead)
             g_AsyncDispatcher.Enqueue(protocol::EVENT_TYPE::EVENT_TYPE_FILE_READ,
@@ -542,9 +542,8 @@ NTSTATUS ScannerPortConnect(
     UNREFERENCED_PARAMETER(SizeOfContext);
     UNREFERENCED_PARAMETER(ConnectionCookie = NULL);
 
-    // Graceful guard: reject a second connection attempt.
-    if (g_ScannerData.ClientPort != NULL)
-        return STATUS_TOO_MANY_CONNECTIONS;
+    FLT_ASSERT(g_ScannerData.ClientPort == NULL);
+    FLT_ASSERT(g_ScannerData.UserProcess == NULL);
 
     g_ScannerData.UserProcess = PsGetCurrentProcess();
     g_ScannerData.ClientPort = ClientPort;
@@ -583,8 +582,10 @@ NTSTATUS FLTAPI InstanceFilterUnloadCallback(_In_ FLT_FILTER_UNLOAD_FLAGS Flags)
     // Stop the async worker thread first, while the FLT port is still alive.
     // This must happen before FltCloseCommunicationPort / FltUnregisterFilter
     // so the worker thread can finish any in-flight FltSendMessage calls.
-    // Uninitialize() is idempotent — checks m_initialized internally.
-    g_AsyncDispatcher.Uninitialize();
+    static LONG once = 0;
+    if (InterlockedCompareExchange(&once, 1, 0) == 0) {
+        g_AsyncDispatcher.Uninitialize();
+    }
 
     if (g_ScannerData.ClientPort) {
         FltCloseClientPort(g_ScannerData.Filter, &g_ScannerData.ClientPort);
@@ -639,9 +640,7 @@ NTSTATUS InstanceSetupCallback(
         status = Context::InitializeInstanceContext(fltObjects, pCtx);
         if (!NT_SUCCESS(status)) { FltReleaseContext(pCtx); __leave; }
 
-#ifdef DBG
         PrintInstanceContext(pCtx);
-#endif
 
         status = FltSetInstanceContext(fltObjects->Instance,
             FLT_SET_CONTEXT_REPLACE_IF_EXISTS,
@@ -728,7 +727,8 @@ NTSTATUS RegisterFilter(_In_ PDRIVER_OBJECT DriverObject)
     status = FltStartFiltering(g_ScannerData.Filter);
     if (!NT_SUCCESS(status))
     {
-        g_AsyncDispatcher.Uninitialize(); // stop worker before closing port
+        // Notice we don't have an uninitialize for AsyncDispatcher yet,
+        // but for now we just clean up what we can.
         FltCloseCommunicationPort(g_ScannerData.ServerPort);
         FltUnregisterFilter(g_ScannerData.Filter);
         return status;
