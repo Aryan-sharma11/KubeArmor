@@ -78,18 +78,7 @@ const appLockerTemplate = `
 </AppLockerPolicy>
 `
 
-// clearPolicyXML is a minimal AppLocker policy that disables enforcement on
-// all rule collections. Applying this effectively removes all KubeArmor
-// AppLocker blocks without requiring a reboot.
-const clearPolicyXML = `
-<AppLockerPolicy Version="1">
-  <RuleCollection Type="Exe" EnforcementMode="NotConfigured" />
-  <RuleCollection Type="Msi" EnforcementMode="NotConfigured" />
-  <RuleCollection Type="Script" EnforcementMode="NotConfigured" />
-  <RuleCollection Type="Appx" EnforcementMode="NotConfigured" />
-  <RuleCollection Type="Dll" EnforcementMode="NotConfigured" />
-</AppLockerPolicy>
-`
+// (Removed clearPolicyXML)
 
 // buildAppxExeSet scans %ProgramFiles%\WindowsApps and returns a set of
 // lowercase .exe basenames found there. All Packaged Apps install exclusively
@@ -239,10 +228,13 @@ func applyAppLockerPolicy(secPolicies []tp.HostSecurityPolicy, appxSet map[strin
 	return applyPolicyXML(xmlContent)
 }
 
-// clearAppLockerPolicy removes all KubeArmor AppLocker enforcement by setting
-// every rule collection to NotConfigured. Call this on shutdown.
+// clearAppLockerPolicy removes all KubeArmor AppLocker enforcement rules
+// but leaves the baseline Default Allow policies active. This is necessary
+// because clearing the policy to "NotConfigured" breaks the system if DLL
+// rules are active.
 func clearAppLockerPolicy() error {
-	return applyPolicyXML(clearPolicyXML)
+	xmlContent := fmt.Sprintf(appLockerTemplate, "", "", "", "", "")
+	return applyPolicyXML(xmlContent)
 }
 
 // applyPolicyXML writes xmlContent to a temp file and calls Set-AppLockerPolicy.
