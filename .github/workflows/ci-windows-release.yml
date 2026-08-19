@@ -1,0 +1,190 @@
+name: ci-windows-release
+
+# Trigger: same semantics as ci-systemd-release
+#   - Any tag push
+#   - Manual dispatch with required tag
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag which has to be updated"
+        type: string
+        required: true
+  push:
+    tags:
+      - "*"
+
+permissions: read-all
+
+jobs:
+
+  build-and-release:
+    name: Build and release Windows artifacts
+    if: github.repository == 'kubearmor/kubearmor'
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      contents: write   # needed to upload release assets
+
+    steps:
+      # Validate semver tag before doing any real work (mirrors ci-systemd-release)
+      - name: Validate version
+        id: validate
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        with:
+          script: |
+            const Regex = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
+            const version = '${{ github.event_name }}' === 'push'
+              ? '${{ github.ref_name }}'
+              : '${{ inputs.tag }}';
+            if (!Regex.test(version)) {
+              core.setFailed(`Invalid version format: ${version}`);
+            } else {
+              core.setOutput('release_tag', version);
+            }
+
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare tag and checkout ref
+        id: tag
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.validate.outputs.release_tag }}"
+          Write-Host "Release tag: $tag"
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            git checkout $tag
+          }
+
+      # ---- Driver build (WDK + MSBuild) ----
+
+      - name: Validate WDK installation
+        shell: pwsh
+        run: |
+          $wdkRoot = "${env:ProgramFiles(x86)}\Windows Kits\10"
+          if (-not (Test-Path $wdkRoot)) {
+            Write-Error "WDK not found at $wdkRoot"
+            exit 1
+          }
+          Write-Host "WDK found at $wdkRoot"
+
+      - name: Build driver — Release x64
+        shell: pwsh
+        working-directory: pkg/KubeArmorWindowsDriver
+        run: |
+          & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
+            kubearmor.sln `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /m `
+            /v:minimal
+
+      - name: Build driver — Release ARM64
+        shell: pwsh
+        working-directory: pkg/KubeArmorWindowsDriver
+        run: |
+          & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
+            kubearmor.sln `
+            /p:Configuration=Release `
+            /p:Platform=ARM64 `
+            /m `
+            /v:minimal
+
+      # ---- Go binary build (.exe) on the same runner ----
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: "KubeArmor/go.mod"
+
+      - name: Build kubearmor.exe — amd64 + arm64
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+          VERSION: ${{ steps.tag.outputs.tag }}
+        working-directory: KubeArmor
+        run: |
+          New-Item -ItemType Directory -Path ..\windows-binaries -Force | Out-Null
+
+          foreach ($arch in @("amd64", "arm64")) {
+            Write-Host "Building GOOS=windows GOARCH=$arch ..."
+            $env:GOOS   = "windows"
+            $env:GOARCH = $arch
+            go build `
+              -tags windows `
+              "-ldflags=-s -w -X main.version=$env:VERSION" `
+              -o "..\windows-binaries\kubearmor-windows-$arch.exe" `
+              .\cmd\kubearmor
+          }
+
+      # ---- Package into release zips ----
+      # Naming matches goreleaser convention: kubearmor_<version>_Windows_<arch>.zip
+
+      - name: Create release archives
+        id: archive
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.tag.outputs.tag }}
+        run: |
+          $version = $env:VERSION
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+
+          $archs = @(
+            @{ GoArch = "amd64"; ArchiveSuffix = "x86_64"; SysArch = "x64"  },
+            @{ GoArch = "arm64"; ArchiveSuffix = "arm64";  SysArch = "arm64" }
+          )
+
+          foreach ($a in $archs) {
+            $name = "kubearmor_${version}_Windows_$($a.ArchiveSuffix)"
+            $dir  = "dist\$name"
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+
+            # Daemon binary
+            Copy-Item "windows-binaries\kubearmor-windows-$($a.GoArch).exe" "$dir\kubearmor.exe"
+
+            # Minifilter driver
+            Copy-Item "pkg\KubeArmorWindowsDriver\$($a.SysArch)\Release\kubearmor.sys" "$dir\kubearmor.sys"
+            Copy-Item "pkg\KubeArmorWindowsDriver\$($a.SysArch)\Release\kubearmor.inf" "$dir\kubearmor.inf"
+            $cat = "pkg\KubeArmorWindowsDriver\$($a.SysArch)\Release\kubearmor.cat"
+            if (Test-Path $cat) { Copy-Item $cat "$dir\kubearmor.cat" }
+
+            Compress-Archive -Path "$dir\*" -DestinationPath "dist\${name}.zip"
+            Write-Host "Created dist\${name}.zip"
+          }
+
+          # SHA-256 checksums
+          Get-ChildItem dist\*.zip | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)" | Out-File -Append "dist\sha256sums-windows.txt"
+          }
+          Get-Content "dist\sha256sums-windows.txt"
+
+      # ---- Attach to GitHub Release ----
+      # Wait for goreleaser (Linux job) to create the release first,
+      # then upload the Windows assets alongside it.
+
+      - name: Upload Windows assets to GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+        run: |
+          $version = "${{ steps.tag.outputs.tag }}"
+
+          # Wait for goreleaser to create the release (up to ~5 min)
+          for ($i = 1; $i -le 10; $i++) {
+            $exists = gh release view $version --repo "${{ github.repository }}" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Release $version found."
+              break
+            }
+            Write-Host "Waiting for release $version ... ($i/10)"
+            Start-Sleep -Seconds 30
+          }
+
+          $assets = (Get-ChildItem dist\*.zip, dist\sha256sums-windows.txt).FullName
+          gh release upload $version @assets `
+            --repo "${{ github.repository }}" `
+            --clobber
