@@ -128,12 +128,13 @@ func (mon *SystemMonitor) UpdateLogBase(ctx SyscallContext, log tp.Log) tp.Log {
 
 // UpdateLogs Function
 func (mon *SystemMonitor) UpdateLogs() {
+	contextChan := mon.GetContextChannel()
 	for {
 		select {
 		case <-StopChan:
 			return
 
-		case msg, valid := <-mon.ContextChan:
+		case msg, valid := <-contextChan:
 			if !valid {
 				continue
 			}
@@ -521,7 +522,7 @@ func (mon *SystemMonitor) UpdateLogs() {
 				log.Resource = ""
 				log.Data = "syscall=" + GetSyscallName(int32(msg.ContextSys.EventID)) + " fd=" + fd
 
-			case UDPSendMsg:
+			case UDPSendMsg, UDPSendSkb:
 				if len(msg.ContextArgs) != 3 {
 					continue
 				}
@@ -542,8 +543,13 @@ func (mon *SystemMonitor) UpdateLogs() {
 						qtype = "AAAA"
 					}
 				}
+				kfunc := "kfunc=UDP_SENDSKB"
+				// UDPSendMsg is disabled.
+				if msg.ContextSys.EventID == UDPSendMsg {
+					kfunc = "kfunc=UDP_SENDMSG"
 
-				log.Data = "kfunc=UDP_SENDMSG" + " domain=" + domains[:len(domains)-1] + // removed trailing . from domain name
+				}
+				log.Data = kfunc + " domain=" + domains[:len(domains)-1] + // removed trailing . from domain name
 					" daddr=" + sockAddr["sin_addr"] +
 					" qtype=" + qtype
 				log.Operation = "Network"

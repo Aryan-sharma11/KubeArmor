@@ -1,3 +1,5 @@
+//go:build linux
+
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Authors of KubeArmor
 
@@ -27,8 +29,6 @@ import (
 	mon "github.com/kubearmor/KubeArmor/KubeArmor/monitor"
 	tp "github.com/kubearmor/KubeArmor/KubeArmor/types"
 )
-
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang filelessexec  ../../BPF/filelessexec.bpf.c -type event -no-global-types -- -I/usr/include/ -O2 -g -Wno-missing-declarations
 
 var (
 	_ base.PresetInterface = (*Preset)(nil)
