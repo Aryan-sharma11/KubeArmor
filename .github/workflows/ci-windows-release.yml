@@ -20,7 +20,7 @@ jobs:
 
   build-and-release:
     name: Build and release Windows artifacts
-    if: github.repository == 'kubearmor/kubearmor'
+    if: github.repository == 'Aryan-sharma11/kubearmor'
     runs-on: windows-2022
     timeout-minutes: 60
     permissions:
