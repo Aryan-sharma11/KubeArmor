@@ -138,6 +138,8 @@ jobs:
           Copy-Item "$driverDir\kubearmor.inf" "$driverPkgDir\kubearmor.inf" -Force
           if (Test-Path "$driverDir\kubearmor.cat") {
             Copy-Item "$driverDir\kubearmor.cat" "$driverPkgDir\kubearmor.cat" -Force
+          } else {
+            New-Item -ItemType File -Path "$driverPkgDir\kubearmor.cat" -Force | Out-Null
           }
 
           # 3. Clean up any checked-in or stale bin/obj directories
@@ -145,13 +147,10 @@ jobs:
           if (Test-Path "pkg\KubeArmorDriverInstaller\obj") { Remove-Item -Recurse -Force "pkg\KubeArmorDriverInstaller\obj" }
 
           # 4. Build KubeArmorDriverInstaller.wixproj using MSBuild
-          # Note: We append "\." to the TargetDir to prevent PowerShell from escaping the 
-          # closing quote with a trailing backslash when passing args to a native command.
           & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
             pkg\KubeArmorDriverInstaller\KubeArmorDriverInstaller.wixproj `
             /p:Configuration=Release `
             /p:Platform=x64 `
-            /p:kubearmor.TargetDir="$(Get-Location)\pkg\KubeArmorWindowsDriver\x64\Release\." `
             /m `
             /v:minimal
 
