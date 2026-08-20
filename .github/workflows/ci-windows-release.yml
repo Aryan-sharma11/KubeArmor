@@ -122,7 +122,7 @@ jobs:
             -tags windows `
             "-ldflags=-s -w -X main.version=$env:VERSION" `
             -o "..\windows-binaries\kubearmor-windows-amd64.exe" `
-            .\cmd\kubearmor
+            .
 
       # ---- Package into release zips ----
       # Naming matches goreleaser convention: kubearmor_<version>_Windows_<arch>.zip
