@@ -164,10 +164,13 @@ jobs:
       - name: Upload Windows assets to GitHub Release
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.GH_ACCESS_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = "${{ steps.tag.outputs.tag }}"
 
+          # Wait for goreleaser (ci-systemd-release) to create the release.
+          # Both workflows fire on the same tag push; the Windows build takes
+          # longer, so the release should exist by the time we get here.
           for ($i = 1; $i -le 10; $i++) {
             gh release view $version --repo "${{ github.repository }}" 2>$null
             if ($LASTEXITCODE -eq 0) {
@@ -176,6 +179,11 @@ jobs:
             }
             Write-Host "Waiting for release $version ... ($i/10)"
             Start-Sleep -Seconds 30
+          }
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Release $version was not found after 5 minutes. Aborting."
+            exit 1
           }
 
           $assets = (Get-ChildItem dist\*.zip, dist\sha256sums-windows.txt).FullName
