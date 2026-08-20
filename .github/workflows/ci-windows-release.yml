@@ -58,31 +58,7 @@ jobs:
             git checkout $tag
           }
 
-      # ---- Install ARM64 WDK cross-compilation support ----
-      # The windows-2022 runner has VS 2022 + WDK but without the ARM64
-      # kernel import libraries. We add them via the VS installer modify command.
-      # This installs: VC ARM64 compiler + ARM64 SDK headers/libs for driver dev.
-      - name: Install ARM64 WDK components
-        shell: pwsh
-        run: |
-          $vsInstaller = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
 
-          Write-Host "Adding ARM64 build tools via VS installer..."
-          $proc = Start-Process -FilePath $vsInstaller -ArgumentList @(
-            "modify",
-            "--installPath", "C:\Program Files\Microsoft Visual Studio\2022\Enterprise",
-            "--add", "Microsoft.VisualStudio.Component.VC.Tools.ARM64",
-            "--add", "Microsoft.VisualStudio.Component.VC.Redist.MSM",
-            "--quiet",
-            "--norestart",
-            "--noUpdateInstaller"
-          ) -Wait -PassThru
-
-          if ($proc.ExitCode -ne 0) {
-            Write-Warning "VS installer exited with code $($proc.ExitCode) — ARM64 tools may already be installed, continuing."
-          } else {
-            Write-Host "ARM64 build tools installed successfully."
-          }
 
       # ---- Driver build (WDK + MSBuild) ----
 
@@ -121,17 +97,7 @@ jobs:
             /m `
             /v:minimal
 
-      - name: Build driver — Release ARM64
-        shell: pwsh
-        working-directory: pkg/KubeArmorWindowsDriver
-        run: |
-          & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
-            kubearmor.sln `
-            /p:Configuration=Release `
-            /p:Platform=ARM64 `
-            /p:InfVerif_Enable=false `
-            /m `
-            /v:minimal
+
 
       # ---- Go binary build (.exe) ----
 
@@ -149,16 +115,14 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path ..\windows-binaries -Force | Out-Null
 
-          foreach ($arch in @("amd64", "arm64")) {
-            Write-Host "Building GOOS=windows GOARCH=$arch ..."
-            $env:GOOS   = "windows"
-            $env:GOARCH = $arch
-            go build `
-              -tags windows `
-              "-ldflags=-s -w -X main.version=$env:VERSION" `
-              -o "..\windows-binaries\kubearmor-windows-$arch.exe" `
-              .\cmd\kubearmor
-          }
+          Write-Host "Building GOOS=windows GOARCH=amd64 ..."
+          $env:GOOS   = "windows"
+          $env:GOARCH = "amd64"
+          go build `
+            -tags windows `
+            "-ldflags=-s -w -X main.version=$env:VERSION" `
+            -o "..\windows-binaries\kubearmor-windows-amd64.exe" `
+            .\cmd\kubearmor
 
       # ---- Package into release zips ----
       # Naming matches goreleaser convention: kubearmor_<version>_Windows_<arch>.zip
@@ -173,31 +137,19 @@ jobs:
           $driverBase = "pkg\KubeArmorWindowsDriver"
           New-Item -ItemType Directory -Path dist -Force | Out-Null
 
-          $archs = @(
-            @{ GoArch = "amd64"; ArchiveSuffix = "x86_64"; SysArch = "x64"  },
-            @{ GoArch = "arm64"; ArchiveSuffix = "arm64";  SysArch = "ARM64" }
-          )
+          $name = "kubearmor_${version}_Windows_x86_64"
+          $dir  = "dist\$name"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
 
-          foreach ($a in $archs) {
-            $name = "kubearmor_${version}_Windows_$($a.ArchiveSuffix)"
-            $dir  = "dist\$name"
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
-
-            # Daemon binary
-            Copy-Item "windows-binaries\kubearmor-windows-$($a.GoArch).exe" "$dir\kubearmor.exe"
-
-            # Minifilter driver
-            $sysPath = "$driverBase\$($a.SysArch)\Release\kubearmor.sys"
-            $infPath = "$driverBase\$($a.SysArch)\Release\kubearmor.inf"
-            $catPath = "$driverBase\$($a.SysArch)\Release\kubearmor.cat"
-
-            if (Test-Path $sysPath) { Copy-Item $sysPath "$dir\kubearmor.sys" }
-            if (Test-Path $infPath) { Copy-Item $infPath "$dir\kubearmor.inf" }
-            if (Test-Path $catPath) { Copy-Item $catPath "$dir\kubearmor.cat" }
-
-            Compress-Archive -Path "$dir\*" -DestinationPath "dist\${name}.zip"
-            Write-Host "Created dist\${name}.zip"
+          Copy-Item "windows-binaries\kubearmor-windows-amd64.exe"        "$dir\kubearmor.exe"
+          Copy-Item "$driverBase\x64\Release\kubearmor.sys"               "$dir\kubearmor.sys"
+          Copy-Item "$driverBase\x64\Release\kubearmor.inf"               "$dir\kubearmor.inf"
+          if (Test-Path "$driverBase\x64\Release\kubearmor.cat") {
+            Copy-Item "$driverBase\x64\Release\kubearmor.cat"             "$dir\kubearmor.cat"
           }
+
+          Compress-Archive -Path "$dir\*" -DestinationPath "dist\${name}.zip"
+          Write-Host "Created dist\${name}.zip"
 
           # SHA-256 checksums
           Get-ChildItem dist\*.zip | ForEach-Object {
