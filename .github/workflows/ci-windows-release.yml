@@ -126,43 +126,67 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.tag.outputs.tag }}"
+          $root     = "${{ github.workspace }}"
 
-          # 1. Place KubeArmor.exe where Product.wxs expects it (..\..\KubeArmor\KubeArmor.exe)
-          Copy-Item "windows-binaries\kubearmor-windows-amd64.exe" "KubeArmor\KubeArmor.exe" -Force
+          # 1. Stage KubeArmor.exe using absolute paths.
+          #    Product.wxs line 46 references: ..\..\KubeArmor\KubeArmor.exe
+          #    which from pkg\KubeArmorDriverInstaller\ resolves to $root\KubeArmor\KubeArmor.exe
+          $srcExe  = "$root\windows-binaries\kubearmor-windows-amd64.exe"
+          $destExe = "$root\KubeArmor\KubeArmor.exe"
+          if (-not (Test-Path $srcExe)) {
+            Write-Error "Source binary not found: $srcExe"
+            exit 1
+          }
+          Copy-Item $srcExe $destExe -Force
+          Write-Host "Staged: $destExe"
 
-          # 2. Stage driver files in x64\Release\kubearmor\ as expected by Product.wxs
-          $driverDir = "pkg\KubeArmorWindowsDriver\x64\Release"
+          # 2. Stage driver files into x64\Release\kubearmor\ as expected by Product.wxs
+          $driverDir    = "$root\pkg\KubeArmorWindowsDriver\x64\Release"
           $driverPkgDir = "$driverDir\kubearmor"
           New-Item -ItemType Directory -Path $driverPkgDir -Force | Out-Null
-          Copy-Item "$driverDir\kubearmor.sys" "$driverPkgDir\kubearmor.sys" -Force
-          Copy-Item "$driverDir\kubearmor.inf" "$driverPkgDir\kubearmor.inf" -Force
-          if (Test-Path "$driverDir\kubearmor.cat") {
-            Copy-Item "$driverDir\kubearmor.cat" "$driverPkgDir\kubearmor.cat" -Force
+
+          foreach ($f in @("kubearmor.sys","kubearmor.inf")) {
+            $src = "$driverDir\$f"
+            if (-not (Test-Path $src)) { Write-Error "Missing driver artifact: $src"; exit 1 }
+            Copy-Item $src "$driverPkgDir\$f" -Force
+          }
+          # .cat is optional (may not be generated on test-sign runners); create placeholder if missing
+          $catSrc = "$driverDir\kubearmor.cat"
+          if (Test-Path $catSrc) {
+            Copy-Item $catSrc "$driverPkgDir\kubearmor.cat" -Force
           } else {
             New-Item -ItemType File -Path "$driverPkgDir\kubearmor.cat" -Force | Out-Null
           }
 
-          # 3. Clean up any checked-in or stale bin/obj directories
-          if (Test-Path "pkg\KubeArmorDriverInstaller\bin") { Remove-Item -Recurse -Force "pkg\KubeArmorDriverInstaller\bin" }
-          if (Test-Path "pkg\KubeArmorDriverInstaller\obj") { Remove-Item -Recurse -Force "pkg\KubeArmorDriverInstaller\obj" }
+          # 3. Clean stale bin/obj to avoid packaging a checked-in MSI
+          Remove-Item -Recurse -Force "$root\pkg\KubeArmorDriverInstaller\bin" -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force "$root\pkg\KubeArmorDriverInstaller\obj" -ErrorAction SilentlyContinue
 
-          # 4. Build KubeArmorDriverInstaller.wixproj using MSBuild
+          # 4. Build WiX installer.
+          #    Pass InfVerif_Enable=false so the driver ProjectReference rebuild
+          #    inside the wixproj also skips the broken InfVerif.dll on this runner.
           & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
-            pkg\KubeArmorDriverInstaller\KubeArmorDriverInstaller.wixproj `
+            "$root\pkg\KubeArmorDriverInstaller\KubeArmorDriverInstaller.wixproj" `
             /p:Configuration=Release `
             /p:Platform=x64 `
+            /p:InfVerif_Enable=false `
             /m `
             /v:minimal
 
-          # 5. Copy generated MSI to dist folder
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
-          $msiPath = Get-ChildItem "pkg\KubeArmorDriverInstaller\bin" -Recurse -Filter "*.msi" | Select-Object -First 1 -ExpandProperty FullName
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "WiX MSBuild failed with exit code $LASTEXITCODE"
+            exit 1
+          }
+
+          # 5. Copy generated MSI to dist
+          New-Item -ItemType Directory -Path "$root\dist" -Force | Out-Null
+          $msiPath = Get-ChildItem "$root\pkg\KubeArmorDriverInstaller\bin" -Recurse -Filter "*.msi" | Select-Object -First 1 -ExpandProperty FullName
           if (-not $msiPath) {
             Write-Error "MSI installer was not generated"
             exit 1
           }
 
-          $msiDest = "dist\kubearmor_${version}_Windows_x86_64.msi"
+          $msiDest = "$root\dist\kubearmor_${version}_Windows_x86_64.msi"
           Copy-Item $msiPath $msiDest
           Write-Host "Created $msiDest"
 
