@@ -164,11 +164,7 @@ jobs:
           Remove-Item -Recurse -Force "$root\pkg\KubeArmorDriverInstaller\obj" -ErrorAction SilentlyContinue
 
           # ── 3. Build WiX installer ────────────────────────────────────────────
-          # Set env var so WiX candle picks it up via $(env.KubeArmorExePath) in Product.wxs.
-          # Environment variables are inherited by child processes (candle.exe / light.exe).
-          $env:KubeArmorExePath = $srcExe
           Write-Host "=== Starting WiX MSBuild ==="
-          Write-Host "  KubeArmorExePath = $env:KubeArmorExePath"
 
           & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
             "$root\pkg\KubeArmorDriverInstaller\KubeArmorDriverInstaller.wixproj" `
