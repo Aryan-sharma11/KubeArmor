@@ -164,10 +164,15 @@ jobs:
           Remove-Item -Recurse -Force "$root\pkg\KubeArmorDriverInstaller\obj" -ErrorAction SilentlyContinue
 
           # ── 3. Build WiX installer ────────────────────────────────────────────
+          # Stage the exe directly into the WiX folder so Product.wxs can find it natively
+          $wixDir = "$root\pkg\KubeArmorDriverInstaller"
+          Copy-Item $srcExe "$wixDir\KubeArmor.exe" -Force
+          Write-Host "Staged EXE to $wixDir\KubeArmor.exe"
+
           Write-Host "=== Starting WiX MSBuild ==="
 
           & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
-            "$root\pkg\KubeArmorDriverInstaller\KubeArmorDriverInstaller.wixproj" `
+            "$wixDir\KubeArmorDriverInstaller.wixproj" `
             /p:Configuration=Release `
             /p:Platform=x64 `
             /p:InfVerif_Enable=false `
