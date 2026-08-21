@@ -97,54 +97,7 @@ static PRULE_ENTRY LookupRuleBySuffix(PRULE_HASH_TABLE table, PUNICODE_STRING Pa
     return NULL;
 }
 
-// Helper: look up a rule by suffix in a hash table (for process enforcement).
-//
-// Instead of scanning all NUM_BUCKETS, we walk the path right-to-left and at
-// each backslash boundary extract the suffix as a UNICODE_STRING, compute its
-// hash, and probe exactly one bucket. This reduces the search from
-// O(NUM_BUCKETS × chain) to O(path_depth × chain).
-//
-// Boundary semantics: the character immediately before the matched suffix must
-// be '\' (or we are at the start of the path). This prevents 'bad_notepad.exe'
-// from matching a rule stored as 'notepad.exe'.
-static PRULE_ENTRY LookupRuleBySuffix(PRULE_HASH_TABLE table, PUNICODE_STRING Path) {
-    if (!Path || Path->Length == 0)
-        return NULL;
 
-    USHORT totalChars = Path->Length / sizeof(WCHAR);
-
-    // Walk from right to left.  At each position that is either the start
-    // of the string or immediately after a '\', probe the hash table with
-    // the suffix starting at that position.
-    for (USHORT i = totalChars; ; ) {
-        // Find the next '\' scanning leftward (or reach start).
-        while (i > 0 && Path->Buffer[i - 1] != L'\\')
-            i--;
-
-        // Suffix: Path->Buffer[i .. totalChars-1]
-        UNICODE_STRING suffix;
-        suffix.Buffer        = Path->Buffer + i;
-        suffix.Length        = (totalChars - i) * sizeof(WCHAR);
-        suffix.MaximumLength = suffix.Length;
-
-        if (suffix.Length > 0) {
-            ULONG hash  = HashPath(&suffix);
-            ULONG index = hash % NUM_BUCKETS;
-
-            PLIST_ENTRY head = &table->Buckets[index];
-            for (PLIST_ENTRY e = head->Flink; e != head; e = e->Flink) {
-                PRULE_ENTRY rule = CONTAINING_RECORD(e, RULE_ENTRY, ListEntry);
-                if (RtlEqualUnicodeString(&rule->Path, &suffix, TRUE))
-                    return rule;
-            }
-        }
-
-        if (i == 0)
-            break;
-        i--; // skip the '\' itself for the next iteration
-    }
-    return NULL;
-}
 
 // Helper: look up a rule in a hash table by path
 static PRULE_ENTRY LookupRuleInTable(PRULE_HASH_TABLE table, PUNICODE_STRING Path) {
