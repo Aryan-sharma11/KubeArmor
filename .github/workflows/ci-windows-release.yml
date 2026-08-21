@@ -128,17 +128,12 @@ jobs:
           $version = "${{ steps.tag.outputs.tag }}"
           $root     = "${{ github.workspace }}"
 
-          # 1. Stage KubeArmor.exe using absolute paths.
-          #    Product.wxs line 46 references: ..\..\KubeArmor\KubeArmor.exe
-          #    which from pkg\KubeArmorDriverInstaller\ resolves to $root\KubeArmor\KubeArmor.exe
+          # 1. Source binary is built in windows-binaries/
           $srcExe  = "$root\windows-binaries\kubearmor-windows-amd64.exe"
-          $destExe = "$root\KubeArmor\KubeArmor.exe"
           if (-not (Test-Path $srcExe)) {
             Write-Error "Source binary not found: $srcExe"
             exit 1
           }
-          Copy-Item $srcExe $destExe -Force
-          Write-Host "Staged: $destExe"
 
           # 2. Stage driver files into x64\Release\kubearmor\ as expected by Product.wxs
           $driverDir    = "$root\pkg\KubeArmorWindowsDriver\x64\Release"
@@ -163,13 +158,13 @@ jobs:
           Remove-Item -Recurse -Force "$root\pkg\KubeArmorDriverInstaller\obj" -ErrorAction SilentlyContinue
 
           # 4. Build WiX installer.
-          #    Pass InfVerif_Enable=false so the driver ProjectReference rebuild
-          #    inside the wixproj also skips the broken InfVerif.dll on this runner.
+          #    Pass the absolute path to KubeArmor.exe directly as a WiX variable.
           & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
             "$root\pkg\KubeArmorDriverInstaller\KubeArmorDriverInstaller.wixproj" `
             /p:Configuration=Release `
             /p:Platform=x64 `
             /p:InfVerif_Enable=false `
+            "/p:DefineConstants=KubeArmorExePath=$srcExe" `
             /m `
             /v:minimal
 
