@@ -2,7 +2,7 @@
 # Copyright 2026 Authors of KubeArmor
 
 # Build the manager binary
-FROM golang:1.26@sha256:079e59808d2d252516e27e3f3a9c003740dee7f75e55aa71528766d52bcfc16a AS builder
+FROM docker.io/golang:1.26.6@sha256:0d1d3a794be25f809dd2cb3160d8c73276c4056a9f8242a138e908ddeee7b6b6 AS builder
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
