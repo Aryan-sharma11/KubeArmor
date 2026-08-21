@@ -128,24 +128,30 @@ jobs:
           $version = "${{ steps.tag.outputs.tag }}"
           $root     = "${{ github.workspace }}"
 
-          # 1. Source binary is built in windows-binaries/
-          $srcExe  = "$root\windows-binaries\kubearmor-windows-amd64.exe"
-          if (-not (Test-Path $srcExe)) {
-            Write-Error "Source binary not found: $srcExe"
-            exit 1
+          # ── Pre-flight: resolve and validate every artifact path ──────────────
+          $srcExe      = "$root\windows-binaries\kubearmor-windows-amd64.exe"
+          $driverDir   = "$root\pkg\KubeArmorWindowsDriver\x64\Release"
+          $driverSys   = "$driverDir\kubearmor.sys"
+          $driverInf   = "$driverDir\kubearmor.inf"
+
+          Write-Host "=== Pre-flight artifact check ==="
+          Write-Host "  EXE  : $srcExe"
+          Write-Host "  SYS  : $driverSys"
+          Write-Host "  INF  : $driverInf"
+
+          @($srcExe, $driverSys, $driverInf) | ForEach-Object {
+            if (-not (Test-Path $_)) {
+              Write-Error "Required artifact missing: $_"
+              exit 1
+            }
+            Write-Host "  [OK] $_"
           }
 
-          # 2. Stage driver files into x64\Release\kubearmor\ as expected by Product.wxs
-          $driverDir    = "$root\pkg\KubeArmorWindowsDriver\x64\Release"
+          # ── 1. Stage driver files ─────────────────────────────────────────────
           $driverPkgDir = "$driverDir\kubearmor"
           New-Item -ItemType Directory -Path $driverPkgDir -Force | Out-Null
-
-          foreach ($f in @("kubearmor.sys","kubearmor.inf")) {
-            $src = "$driverDir\$f"
-            if (-not (Test-Path $src)) { Write-Error "Missing driver artifact: $src"; exit 1 }
-            Copy-Item $src "$driverPkgDir\$f" -Force
-          }
-          # .cat is optional (may not be generated on test-sign runners); create placeholder if missing
+          Copy-Item $driverSys "$driverPkgDir\kubearmor.sys" -Force
+          Copy-Item $driverInf "$driverPkgDir\kubearmor.inf" -Force
           $catSrc = "$driverDir\kubearmor.cat"
           if (Test-Path $catSrc) {
             Copy-Item $catSrc "$driverPkgDir\kubearmor.cat" -Force
@@ -153,27 +159,31 @@ jobs:
             New-Item -ItemType File -Path "$driverPkgDir\kubearmor.cat" -Force | Out-Null
           }
 
-          # 3. Clean stale bin/obj to avoid packaging a checked-in MSI
+          # ── 2. Clean stale bin/obj ────────────────────────────────────────────
           Remove-Item -Recurse -Force "$root\pkg\KubeArmorDriverInstaller\bin" -ErrorAction SilentlyContinue
           Remove-Item -Recurse -Force "$root\pkg\KubeArmorDriverInstaller\obj" -ErrorAction SilentlyContinue
 
-          # 4. Build WiX installer.
-          #    Pass the absolute path to KubeArmor.exe directly as a WiX variable.
+          # ── 3. Build WiX installer ────────────────────────────────────────────
+          # Set env var so WiX candle picks it up via $(env.KubeArmorExePath) in Product.wxs.
+          # Environment variables are inherited by child processes (candle.exe / light.exe).
+          $env:KubeArmorExePath = $srcExe
+          Write-Host "=== Starting WiX MSBuild ==="
+          Write-Host "  KubeArmorExePath = $env:KubeArmorExePath"
+
           & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
             "$root\pkg\KubeArmorDriverInstaller\KubeArmorDriverInstaller.wixproj" `
             /p:Configuration=Release `
             /p:Platform=x64 `
             /p:InfVerif_Enable=false `
-            "/p:DefineConstants=KubeArmorExePath=$srcExe" `
             /m `
-            /v:minimal
+            /v:normal
 
           if ($LASTEXITCODE -ne 0) {
             Write-Error "WiX MSBuild failed with exit code $LASTEXITCODE"
             exit 1
           }
 
-          # 5. Copy generated MSI to dist
+          # ── 4. Copy generated MSI to dist ─────────────────────────────────────
           New-Item -ItemType Directory -Path "$root\dist" -Force | Out-Null
           $msiPath = Get-ChildItem "$root\pkg\KubeArmorDriverInstaller\bin" -Recurse -Filter "*.msi" | Select-Object -First 1 -ExpandProperty FullName
           if (-not $msiPath) {
