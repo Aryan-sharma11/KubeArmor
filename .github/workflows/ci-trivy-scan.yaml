@@ -51,10 +51,10 @@ jobs:
               - 'pkg/KubeArmorOperator/**'
       
       - name: Install the latest LLVM toolchain
-        run: ./.github/workflows/install-llvm.sh
+        run: ./.github/scripts/linux/install-llvm.sh
 
       - name: Compile libbpf
-        run: ./.github/workflows/install-libbpf.sh
+        run: ./.github/scripts/linux/install-libbpf.sh
 
       - name: Set up Docker
         uses: docker/setup-docker-action@e43656e248c0bd0647d3f5c195d116aacf6fcaf4 # v4
