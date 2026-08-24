@@ -174,7 +174,7 @@ jobs:
           & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
             "$wixDir\KubeArmorDriverInstaller.wixproj" `
             /p:Configuration=Release `
-            /p:Platform=x64 `
+            /p:Platform=x86 `
             /p:InfVerif_Enable=false `
             /m `
             /v:normal
