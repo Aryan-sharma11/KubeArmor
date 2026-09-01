@@ -24,7 +24,7 @@ jobs:
             os: ubuntu-22.04
           - arch: arm64
             os: ubuntu-22.04-arm
-    if: github.repository == 'kubearmor/kubearmor'
+    if: github.repository == 'Aryan-sharma11/kubearmor'
     permissions:
       id-token: write
       contents: write
