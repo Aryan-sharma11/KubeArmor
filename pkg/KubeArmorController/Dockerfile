@@ -2,7 +2,7 @@
 # Copyright 2026 Authors of KubeArmor
 
 # Build the manager binary
-FROM golang:1.26@sha256:ab563819a16cfe5faff0f96a8bb598fbb0e400ab2ac751996e60abcb23b106a3 AS builder
+FROM golang:1.26@sha256:45a5f7a810238aabcbad211d70b9ae082022d96f7c7259e94041ad1b933575ac AS builder
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
@@ -10,7 +10,7 @@ COPY go.mod go.mod
 COPY go.sum go.sum
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
-RUN go mod download
+RUN go mod download && go mod verify
 
 # Copy the go source
 COPY cmd/main.go cmd/main.go
@@ -22,7 +22,7 @@ COPY types/ types/
 COPY common/ common/
 
 # Build
-RUN CGO_ENABLED=0 GO111MODULE=on go build -a -o manager cmd/main.go
+RUN CGO_ENABLED=0 GO111MODULE=on GOPROXY=off go build -a -o manager cmd/main.go
 
 # Build controller with scratch as base image
 FROM scratch AS controller
