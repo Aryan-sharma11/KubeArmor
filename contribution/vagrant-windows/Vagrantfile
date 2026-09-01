@@ -1,0 +1,202 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Authors of KubeArmor
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KubeArmor Windows Development & Test VM
+#
+# Uses a pre-built Vagrant box that includes the full Windows development
+# toolchain (VS Build Tools 2022, WDK, WiX Toolset v3, Go, Git, Ginkgo).
+# The box is published to a registry so vagrant up is fast and reliable.
+#
+# ── Box image update workflow ─────────────────────────────────────────────────
+# When the toolchain needs updating:
+#   1. Start from the base box manually (or use the current dev VM)
+#   2. Install/upgrade tools interactively inside the VM
+#   3. Halt and package:   vagrant package --output kubearmor-windows-dev.box
+#   4. Upload:
+#        # S3
+#        aws s3 cp kubearmor-windows-dev.box s3://bucket/vagrant-boxes/
+#        # GitHub Releases
+#        gh release create v<date> kubearmor-windows-dev.box
+#        # OCI (GitHub Container Registry via ORAS)
+#        oras push ghcr.io/kubearmor/windows-dev-box:latest \
+#          --artifact-type application/vnd.vagrant.box \
+#          kubearmor-windows-dev.box:application/octet-stream
+#   5. Update BOX_URL below and commit
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Requires on the Linux host:
+#   - VirtualBox ≥ 6.1
+#   - Vagrant ≥ 2.3
+#   - vagrant-reload plugin:  vagrant plugin install vagrant-reload
+#
+# Usage:
+#   vagrant up          # start VM using pre-built box (~5-10 min first boot)
+#   vagrant provision   # rebuild driver + MSI and reinstall (~10-15 min)
+#   vagrant rdp         # open an RDP session (localhost:33389)
+#   vagrant ssh         # WinRM shell
+#   vagrant destroy -f  # tear down completely
+#
+# Environment variables:
+#   VM_CPUS   — number of vCPUs   (default: 4)
+#   VM_MEM    — RAM in MB          (default: 8192)
+#   BOX_URL   — override box URL   (useful for local testing)
+# ─────────────────────────────────────────────────────────────────────────────
+
+Vagrant.require_version ">= 2.3.0"
+
+VM_NAME  = "kubearmor-win-dev"
+VM_CPUS  = (ENV['VM_CPUS'] || "4").to_i
+VM_MEM   = (ENV['VM_MEM']  || "8192").to_i
+
+# Path to KubeArmor repo root (three levels up from this file)
+KUBEARMOR_HOME = File.expand_path("../../..", __FILE__)
+
+# ── Box image ──────────────────────────────────────────────────────────────────
+# Pre-built box with full toolchain. Set BOX_URL env var to override (e.g. to
+# a local .box file path during development: BOX_URL=./kubearmor-windows-dev.box)
+#
+# TODO: Update this URL after uploading the packaged box.
+#       Until the pre-built box is available, set BOX_URL to a local .box file:
+#         BOX_URL=/path/to/kubearmor-windows-dev.box vagrant up
+BOX_URL = ENV['BOX_URL'] || "https://TODO-update-after-upload/kubearmor-windows-dev.box"
+
+# Fallback: if BOX_URL is not set and starts with "https://TODO", use the base
+# box and run the full provisioning chain (development mode).
+USE_PREBUILT_BOX = !(BOX_URL.start_with?("https://TODO"))
+
+Vagrant.configure("2") do |config|
+  # ── Box ──────────────────────────────────────────────────────────────────────
+  if USE_PREBUILT_BOX
+    config.vm.box     = "kubearmor-windows-dev"
+    config.vm.box_url = BOX_URL
+  else
+    # Fallback to base box for initial toolchain setup
+    config.vm.box = "gusztavvargadr/windows-server-2022-standard"
+    puts "⚠  BOX_URL not set — using base box with full provisioning."
+    puts "   Set BOX_URL=<url> to use the pre-built toolchain box."
+  end
+
+  config.vm.hostname = VM_NAME
+  config.vm.guest    = :windows
+
+  # ── SSH / WinRM connection tuning ─────────────────────────────────────────
+  config.vm.boot_timeout          = 1800
+  config.vm.graceful_halt_timeout = 60
+
+  # ── WinRM settings ────────────────────────────────────────────────────────
+  config.vm.communicator       = :winrm
+  config.winrm.username        = "vagrant"
+  config.winrm.password        = "vagrant"
+  # Allow long-running provisioners (build + MSI install can take >30 min)
+  config.winrm.execution_time_limit = "PT2H"
+
+  # ── VirtualBox provider ───────────────────────────────────────────────────
+  config.vm.provider "virtualbox" do |vb|
+    vb.name   = VM_NAME
+    vb.cpus   = VM_CPUS
+    vb.memory = VM_MEM
+    vb.gui    = false
+
+    vb.customize ["modifyvm", :id, "--nested-hw-virt",  "off"]
+    vb.customize ["modifyvm", :id, "--vram",            "128"]
+    vb.customize ["modifyvm", :id, "--accelerate3d",    "off"]
+    vb.customize ["modifyvm", :id, "--clipboard-mode",  "bidirectional"]
+    vb.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
+    vb.customize ["guestproperty", "set", :id,
+                  "/VirtualBox/GuestAdd/SyncHostTimeInterval", "10000"]
+  end
+
+  # ── Port forwards ─────────────────────────────────────────────────────────
+  config.vm.network "forwarded_port", guest: 32767, host: 32767, auto_correct: true
+  config.vm.network "forwarded_port", guest: 3389,  host: 33389, auto_correct: true, id: "rdp"
+
+  # ── Shared folder ─────────────────────────────────────────────────────────
+  # KubeArmor repo root → C:\KubeArmor inside the VM
+  config.vm.synced_folder KUBEARMOR_HOME, "C:/KubeArmor",
+                          owner: "vagrant", group: "vagrant"
+
+  # ── Provisioners ──────────────────────────────────────────────────────────
+  # When using the pre-built box, toolchain (VS, WDK, WiX, Go, Git, Ginkgo)
+  # is already installed. Only the build + install steps run on every provision.
+  #
+  # When falling back to the base box (BOX_URL not set), the full toolchain
+  # provisioning chain runs (slow, for box image creation only).
+
+  if USE_PREBUILT_BOX
+    # ── Pre-built box: only build + deploy ────────────────────────────────
+
+    # Enable test-signing if not already active (idempotent, fast)
+    config.vm.provision "shell", name: "test-signing",
+                        privileged: true,
+                        path: "provision/02-enable-test-signing.ps1"
+
+    # Enable AppLocker (idempotent)
+    config.vm.provision "shell", name: "enable-applocker",
+                        privileged: true,
+                        path: "provision/06-enable-applocker.ps1"
+
+    # Reboot if test-signing needed a BCD change (first run only)
+    config.vm.provision :reload
+
+  else
+    # ── Base box fallback: full toolchain provisioning (box creation only) ─
+    # Run this once to set up the environment, then package the result.
+
+    config.vm.provision "shell", name: "system-prep",
+                        privileged: true,
+                        path: "provision/01-system-prep.ps1"
+
+    config.vm.provision "shell", name: "test-signing",
+                        privileged: true,
+                        path: "provision/02-enable-test-signing.ps1"
+
+    config.vm.provision "shell", name: "install-go",
+                        privileged: true,
+                        path: "provision/03-install-go.ps1"
+
+    config.vm.provision "shell", name: "install-git",
+                        privileged: true,
+                        path: "provision/04-install-git.ps1"
+
+    config.vm.provision "shell", name: "install-ginkgo",
+                        privileged: true,
+                        path: "provision/05-install-ginkgo.ps1"
+
+    config.vm.provision "shell", name: "install-buildtools",
+                        privileged: true,
+                        path: "provision/03b-install-buildtools.ps1"
+
+    config.vm.provision "shell", name: "enable-applocker",
+                        privileged: true,
+                        path: "provision/06-enable-applocker.ps1"
+
+    config.vm.provision :reload
+
+    config.vm.provision "shell", name: "verify-wdk",
+                        privileged: true,
+                        path: "provision/03c-verify-wdk.ps1",
+                        run: "always"
+  end
+
+  # ── Post-boot message ──────────────────────────────────────────────────────
+  config.vm.post_up_message = <<~MSG
+    KubeArmor Windows Dev VM is ready!
+
+    RDP      : localhost:33389  (vagrant / vagrant)
+    gRPC     : localhost:32767
+    Repo     : C:\\KubeArmor  (shared from host)
+    Driver   : kubearmor.sys (minifilter, test-signed)
+
+    Rebuild and reinstall:
+      vagrant provision
+
+    Run tests (inside VM via vagrant ssh):
+      cd C:\\KubeArmor\\tests\\nonk8s_env
+      ginkgo -r --vv ./windows_policy/
+
+    Verify service and driver:
+      sc.exe query KubeArmorSvc
+      fltmc filters
+  MSG
+end

@@ -1,0 +1,161 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Authors of KubeArmor
+name: ci-test-windows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "KubeArmor/**"
+      - "tests/**"
+      - "protobuf/**"
+      - ".github/workflows/ci-test-windows.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "KubeArmor/**"
+      - "tests/**"
+      - "protobuf/**"
+      - ".github/workflows/ci-test-windows.yml"
+
+# Declare default permissions as read only.
+permissions: read-all
+
+jobs:
+  test-windows:
+    name: Test KubeArmor on Windows (AppLocker enforcement)
+    runs-on: windows-2022
+
+    env:
+      # The GitHub-hosted windows-2022 runner does not have the KubeArmor
+      # minifilter driver installed. File enforcement tests are skipped
+      # automatically when this is set to "false".
+      KUBEARMOR_DRIVER_AVAILABLE: "false"
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: true
+
+      # ── 2. Set up Go ─────────────────────────────────────────────────────────
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: "KubeArmor/go.mod"
+
+      # ── 3. Generate protobuf stubs ────────────────────────────────────────────
+      - name: Install protoc
+        run: |
+          choco install protoc --yes --no-progress
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+          echo "$(go env GOPATH)\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: powershell
+
+      - name: Generate protobuf
+        run: make
+        working-directory: protobuf
+        shell: bash
+
+      # ── 4. Build KubeArmor.exe ────────────────────────────────────────────────
+      - name: Build KubeArmor for Windows
+        run: |
+          go mod tidy
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          $env:CGO_ENABLED = "0"
+          go build -o KubeArmor.exe .
+          Write-Host "Build complete: $(Get-Item KubeArmor.exe | Select-Object -ExpandProperty Length) bytes"
+        working-directory: KubeArmor
+        shell: powershell
+
+      # ── 5. Enable and start the Application Identity service (AppLocker) ─────
+      - name: Enable Application Identity service (required for AppLocker)
+        run: |
+          Set-Service -Name AppIDSvc -StartupType Automatic
+          Start-Service -Name AppIDSvc
+          $svc = Get-Service -Name AppIDSvc
+          Write-Host "AppIDSvc status: $($svc.Status)"
+          if ($svc.Status -ne 'Running') {
+            Write-Error "AppIDSvc failed to start"
+            exit 1
+          }
+        shell: powershell
+
+      # ── 6. Enable AppLocker event log channels ─────────────────────────────
+      - name: Enable AppLocker event log channels
+        run: |
+          $channels = @(
+            "Microsoft-Windows-AppLocker/EXE and DLL",
+            "Microsoft-Windows-AppLocker/MSI and Script",
+            "Microsoft-Windows-AppLocker/Packaged app-Execution"
+          )
+          foreach ($ch in $channels) {
+            wevtutil sl $ch /e:true 2>$null
+            Write-Host "Enabled channel: $ch"
+          }
+        shell: powershell
+
+      # ── 7. Install and start KubeArmor as a Windows service ──────────────────
+      - name: Install KubeArmor service
+        run: |
+          .\KubeArmor.exe install
+          Write-Host "KubeArmor service installed"
+        working-directory: KubeArmor
+        shell: powershell
+
+      - name: Start KubeArmor service
+        run: |
+          .\KubeArmor.exe start
+          # Allow time for gRPC server to become ready
+          Start-Sleep -Seconds 10
+          .\KubeArmor.exe status
+        working-directory: KubeArmor
+        shell: powershell
+
+      # ── 8. Install Ginkgo CLI ─────────────────────────────────────────────────
+      - name: Install Ginkgo
+        run: go install -mod=mod github.com/onsi/ginkgo/v2/ginkgo@9ff1646a26f77a4c0d33ddba3e6368c42c0e8842
+        shell: powershell
+
+      # ── 9. Run Windows policy tests ───────────────────────────────────────────
+      - name: Run Windows policy Ginkgo tests
+        run: |
+          go mod tidy
+          ginkgo -r --vv --flake-attempts=3 --timeout=20m ./windows_policy/
+        working-directory: tests/nonk8s_env
+        shell: powershell
+        timeout-minutes: 25
+
+      # ── 10. Collect KubeArmor logs on failure ────────────────────────────────
+      - name: Collect KubeArmor service logs (on failure)
+        if: failure()
+        run: |
+          Get-WinEvent -LogName Application -MaxEvents 100 |
+            Where-Object { $_.ProviderName -like "*KubeArmor*" } |
+            Format-List TimeCreated, Message |
+            Out-String -Width 200
+        shell: powershell
+
+      - name: Collect AppLocker block events (on failure)
+        if: failure()
+        run: |
+          try {
+            Get-WinEvent -LogName "Microsoft-Windows-AppLocker/EXE and DLL" -MaxEvents 20 |
+              Format-List TimeCreated, Message |
+              Out-String -Width 200
+          } catch {
+            Write-Host "No AppLocker events found or channel unavailable: $_"
+          }
+        shell: powershell
+
+      # ── 11. Teardown: stop and uninstall KubeArmor ───────────────────────────
+      - name: Stop and uninstall KubeArmor service
+        if: always()
+        run: |
+          .\KubeArmor.exe stop   2>$null; $true
+          .\KubeArmor.exe uninstall 2>$null; $true
+        working-directory: KubeArmor
+        shell: powershell
